@@ -68,7 +68,7 @@ String old_uid = "";
 
 static M5Canvas canvas(&M5Dial.Display);
 
-enum class GState : uint8_t { IDLE, MAZE_PLAYING, MAZE_WIN };
+enum class GState : uint8_t { IDLE, MAZE_PLAYING, MAZE_WIN, FACE };
 GState gState = GState::IDLE;
 
 void drawMessage(const String& msg);
@@ -540,6 +540,9 @@ void mazeExitToIdle() {
     selectServo(activeServo);
 }
 
+#include "faces.h"
+#include "sounds.h"
+
 void showBootInfo() {
     char hashStr[12]; snprintf(hashStr, sizeof(hashStr), "#%08x", BUILD_HASH); int cx = 120, cy = 120;
     M5Dial.Display.clear(); M5Dial.Display.setTextFont(&fonts::DejaVu18); M5Dial.Display.setTextColor(WHITE); M5Dial.Display.drawString("M5 Dial", cx, cy - 22);
@@ -564,10 +567,12 @@ void handleSerial() {
         if (c == '\n') {
             serialBuf.trim(); if (serialBuf.length() == 0) { serialBuf = ""; return; }
             if (serialBuf.equalsIgnoreCase("status")) { xSemaphoreTake(dataMutex, portMAX_DELAY); long enc = currentEncoderPos; String rfi = last_rfid; xSemaphoreGive(dataMutex); Serial.printf("[status] state=%d enc=%ld rfid=%s\n", (int)gState, enc, rfi.length() ? rfi.c_str() : "(none)"); }
-            else if (serialBuf.equalsIgnoreCase("help")) Serial.println("[help] status, reset, servo <1|2> <0-180>, <text>");
+            else if (serialBuf.equalsIgnoreCase("help")) Serial.println("[help] status, reset, servo <1|2> <0-180>, face [bot|eyes] <name|cycle|off>, sound <name|stop|vol N>, <text>");
             else if (serialBuf.equalsIgnoreCase("scan")) { int pins[2][2] = {{13, 15}, {15, 13}}; for (int k = 0; k < 2; k++) { Wire.end(); pinMode(13, INPUT); pinMode(15, INPUT); delay(2); Serial.printf("[scan] idle G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); if (k == 0 && !digitalRead(13)) { pinMode(15, OUTPUT_OPEN_DRAIN); for (int c = 0; c < 18; c++) { digitalWrite(15, c & 1); delayMicroseconds(10); } pinMode(15, INPUT); delay(1); Serial.printf("[scan] after 9 clocks G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); pinMode(13, INPUT_PULLUP); delay(1); Serial.printf("[scan] G13 with pullup=%d\n", digitalRead(13)); pinMode(13, INPUT); } Wire.begin(pins[k][0], pins[k][1], 100000); Serial.printf("[scan] SDA=G%d SCL=G%d:", pins[k][0], pins[k][1]); for (int ad = 1; ad < 127; ad++) { Wire.beginTransmission(ad); if (Wire.endTransmission() == 0) Serial.printf(" 0x%02x", ad); } Serial.println(); } Wire.end(); pcaOk = pcaBegin(); Serial.printf("[scan] pcaOk=%d\n", pcaOk); }
             else if (serialBuf.equalsIgnoreCase("pca")) { Serial.printf("[pca] ok=%d MODE1=%02x MODE2=%02x PRESCALE=%d\n", pcaOk, pcaRead8(0x00), pcaRead8(0x01), pcaRead8(0xFE)); for (int ch = 0; ch < NUM_SERVOS; ch++) { uint8_t r[4]; for (int k = 0; k < 4; k++) r[k] = pcaRead8(0x06 + 4 * ch + k); Serial.printf("[pca] ch%d on=%u off=%u\n", ch, r[0] | (r[1] << 8), r[2] | (r[3] << 8)); } }
             else if (serialBuf.startsWith("servo ")) { int n = 0, deg = 0; if (sscanf(serialBuf.c_str() + 6, "%d %d", &n, &deg) == 2 && n >= 1 && n <= NUM_SERVOS) { servoPos[n - 1] = constrain(deg, 0, 180) * 100 / 180; servoWriteAngle(n - 1, deg); if (n - 1 == activeServo && gState == GState::IDLE) selectServo(activeServo); Serial.printf("[servo] %d -> %d deg\n", n, deg); } else Serial.println("[servo] usage: servo <1|2> <0-180>"); }
+            else if (serialBuf.equalsIgnoreCase("face") || serialBuf.startsWith("face ")) handleFaceCommand(serialBuf.substring(4));
+            else if (serialBuf.equalsIgnoreCase("sound") || serialBuf.startsWith("sound ")) handleSoundCommand(serialBuf.substring(5));
             else if (serialBuf.equalsIgnoreCase("reset")) { for (int i = 0; i < NUM_SERVOS; i++) { servoPos[i] = 50; servoWriteAngle(i, 90); } if (gState == GState::IDLE) selectServo(activeServo); }
             else { char buf[81]; serialBuf.substring(0, 80).toCharArray(buf, sizeof(buf)); xQueueSend(msgQueue, buf, 0); }
             serialBuf = "";
@@ -582,10 +587,11 @@ void setup() {
     M5Dial.Display.setTextColor(WHITE); M5Dial.Display.setTextDatum(middle_center); canvas.createSprite(240, 240);
     dataMutex = xSemaphoreCreateMutex(); msgQueue = xQueueCreate(4, 81); encoderQueue = xQueueCreate(8, sizeof(long));
     randomSeed(esp_random()); showBootInfo(); xTaskCreatePinnedToCore(encoderTask, "EncTask", 2048, NULL, 2, NULL, 0); selectServo(0);
+    faceShow(F_THINKING, true);   // start on the bot "thinking" face; button press goes to the servo dial
 }
 
 void loop() {
-    M5Dial.update(); handleSerial(); if (M5Dial.BtnA.wasPressed()) mazeButtonPress();
+    M5Dial.update(); handleSerial(); soundUpdate(); if (M5Dial.BtnA.wasPressed()) { if (gState == GState::FACE) faceExit(); else mazeButtonPress(); }
     if (gState == GState::IDLE) {
         char buf[81]; if (xQueueReceive(msgQueue, buf, 0) == pdTRUE) { drawMessage(String(buf)); M5Dial.Speaker.tone(2000, 100); }
         long encVal; while (xQueueReceive(encoderQueue, &encVal, 0) == pdTRUE) { servoPos[activeServo] = encVal; servoWriteAngle(activeServo, posToDeg(encVal)); drawEncoderGauge(encVal); }
@@ -600,6 +606,13 @@ void loop() {
         mazeUpdateDial();
         // After win sentinel fired inside step(), state flips to MAZE_WIN
         if (gState == GState::MAZE_WIN) drawMazeWin();
+    } else if (gState == GState::FACE) {
+        long encVal; while (xQueueReceive(encoderQueue, &encVal, 0) == pdTRUE) {}
+        if (uxQueueMessagesWaiting(msgQueue)) faceExit();             // text message takes over the screen
+        else {
+            if (M5Dial.Touch.getDetail().wasPressed()) { faceCycling = false; faceShow((faceIdx + 1) % FACE_COUNT, faceBot); }
+            faceUpdate();
+        }
     } else {
         // MAZE_WIN — drain queues, hold the win banner
         char buf[81]; while (xQueueReceive(msgQueue, buf, 0) == pdTRUE) {}
