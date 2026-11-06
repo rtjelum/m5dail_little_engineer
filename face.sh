@@ -4,6 +4,8 @@
 #        ./face.sh sound <done|success|question|error|alert|hello|bye|wow|sad|thinking|love|sleep|startup|beep|stop>
 #        ./face.sh sound typing [seconds] [speed|slow|normal|fast|turbo]   (default 6 s, speed 1)
 #        ./face.sh sound vol <0-255>
+#        ./face.sh servo <1-3> <0-180> [deg/s]   (no speed = jump straight there)
+#        ./face.sh rotate <0-3>        (0 = normal, 1 = 90° cw, 2 = 180°, 3 = 270°)
 #        ./face.sh            (lists face names)   ./face.sh sound   (lists sounds)
 # Override the port with PORT=/dev/cu.xxx ./face.sh sad
 PORT="${PORT:-/dev/cu.usbmodem1101}"
@@ -13,9 +15,9 @@ if [ ! -e "$PORT" ]; then
     exit 1
 fi
 
-stty -f "$PORT" 115200 raw -echo 2>/dev/null || stty -F "$PORT" 115200 raw -echo
 exec 3<>"$PORT"
-if [ "$1" = "sound" ]; then
+stty 115200 raw -echo <&3   # set while open, so the Mac never echoes the dial's replies back to it
+if [ "$1" = "sound" ] || [ "$1" = "rotate" ] || [ "$1" = "servo" ]; then
     printf '%s\n' "$*" >&3
 else
     printf 'face %s\n' "$*" >&3
