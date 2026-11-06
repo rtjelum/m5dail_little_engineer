@@ -94,3 +94,4 @@ python3 serial_monitor.py
 | `serial_monitor.py` | Two-way serial terminal |
 | `circular_maze.py` | Desktop Python prototype of the maze (matplotlib). Arrow keys pick a direction, space moves. |
 | `circular_maze.png` | Screenshot of the prototype |
+| `3d_models/` | Tiny Engineer robot CAD, set up for GH-S37D servos ([details](3d_models/README.md)) |

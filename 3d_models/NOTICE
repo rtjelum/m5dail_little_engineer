@@ -1,0 +1,52 @@
+Copyright (c) 2026 Krzysztof Jamroz
+
+SPDX-License-Identifier: CERN-OHL-S-2.0
+
+The hardware design files in this directory (including `cad/` and
+`parts/`) are licensed under the CERN Open Hardware Licence Version 2
+— Strongly Reciprocal (CERN-OHL-S-2.0). The full licence text is in
+[LICENSE](LICENSE).
+
+Source Location
+---------------
+
+https://github.com/jamro/tiny-engineer/tree/main/3d_models
+
+Bottom-cover and chair-mount modifications: Copyright (c) 2026 Hanson Wen.
+The parametric source and exports are included at the Source Location above.
+
+When distributing a specific revision, use the corresponding tagged
+release or commit URL.
+
+Product notice
+--------------
+
+If you Make or Convey a Product based on these designs, please visibly
+and securely display the Source Location above on the Product, its
+packaging, or included documentation (for example, as an engraved URL,
+a label, or a printed note in the assembly instructions).
+
+Disclaimer of warranty
+----------------------
+
+The Covered Source and any Products are provided "as is" without
+warranty of any kind. See section 6 of [LICENSE](LICENSE).
+
+Trademarks
+----------
+
+The Tiny Engineer name and logo are not licensed under CERN-OHL-S-2.0.
+See [TRADEMARK.md](../TRADEMARK.md).
+
+Modifications in this copy
+--------------------------
+
+Copied from https://github.com/jamro/tiny-engineer/tree/aefc852/3d_models
+on 2026-11-04. Changed: added a "GH-S37D" servo preset to
+`fusion/TinyEngineerTools/servos.json`. No other files were changed.
+Also added `openscad/`, which builds `parts/gh-s37d/stl/` from the ES9051
+STL export with the servo tab slots lengthened for the GH-S37D servo
+(2026-11-04).
+Added `openscad/HeadM5Dial.scad` (2026-11-05): a new fixed head that holds an
+M5Stack Dial and mounts on the neck servo, replacing Head, Hat and Neck. Its
+servo shaft socket copies the dimensions of the original Neck.
