@@ -13,7 +13,24 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 
 <p align="center"><a href="m5_dail_robot.mp4">Watch the video with sound (MP4)</a></p>
 
-![M5Dial](m5dail.webp)
+`face.sh` sends one command from the terminal and prints the reply. Words other than `sound`, `servo`, `arms`, `pwm`, `rotate` and `reset` are sent as a face command:
+
+```sh
+./face.sh bot thinking
+./face.sh arms thinking 40 0.2 1.5
+./face.sh sound done
+```
+
+### Typing arms
+
+`arms thinking` makes the arms type like the robot is working on a laptop:
+
+- One keystroke at a time: a random arm presses and comes back up. Servo 1 rests at 120° and presses to 130°. Servo 3 rests at 50° and presses to 40°.
+- After each keystroke there is a random pause.
+- Every 6–15 s, servo 3 lifts to 80° at 30 deg/s, holds briefly and goes back, while servo 1 keeps typing.
+- All moves ease in and out to keep the servos quiet.
+
+The angles and timings are at the top of the arm code in `m5dail_proj.ino` (`ARM_SWINGS`, `ARM_LIFT_*`).
 
 ## Hardware
 
@@ -23,6 +40,8 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 | PCA9685 16-channel PWM board | On Port A (I2C, SDA=G13, SCL=G15), address `0x40`. The firmware also works if SDA and SCL are swapped. |
 | 3 × GH-S37D servos | Servo N on PCA9685 channel N−1. Servos 1 and 3 are the arms. Pulse range 500–2500 µs, 50 Hz by default. Default angles: 125°, 90°, 50°. |
 | External servo power | Power the servos from the PCA9685 V+ terminal, not from the Dial. |
+
+![M5Dial](m5dail.webp)
 
 ![PCA9685](pca9685.jpg)
 
@@ -105,25 +124,6 @@ python3 serial_monitor.py
 | `pca` | Dump PCA9685 registers and channel values |
 | `scan` | Debug Port A: check line levels, scan the I2C bus, re-init the PCA9685 |
 | anything else | Show the text on screen as a message (up to 80 characters) |
-
-`face.sh` sends one command from the terminal and prints the reply. Words other than `sound`, `servo`, `arms`, `pwm`, `rotate` and `reset` are sent as a face command:
-
-```sh
-./face.sh bot thinking
-./face.sh arms thinking 40 0.2 1.5
-./face.sh sound done
-```
-
-### Typing arms
-
-`arms thinking` makes the arms type like the robot is working on a laptop:
-
-- One keystroke at a time: a random arm presses and comes back up. Servo 1 rests at 120° and presses to 130°. Servo 3 rests at 50° and presses to 40°.
-- After each keystroke there is a random pause.
-- Every 6–15 s, servo 3 lifts to 80° at 30 deg/s, holds briefly and goes back, while servo 1 keeps typing.
-- All moves ease in and out to keep the servos quiet.
-
-The angles and timings are at the top of the arm code in `m5dail_proj.ino` (`ARM_SWINGS`, `ARM_LIFT_*`).
 
 ## Files
 
