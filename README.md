@@ -9,6 +9,10 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 - **Serial messages**: text sent over USB serial is shown as a message card.
 - **Circular maze game**: a random maze of rings you play with the dial and button.
 
+<p align="center"><img src="m5_dail_robot.gif" width="260" alt="The robot typing on its laptop with the thinking face"></p>
+
+<p align="center"><a href="m5_dail_robot.mp4">Watch the video with sound (MP4)</a></p>
+
 ![M5Dial](m5dail.webp)
 
 ## Hardware
