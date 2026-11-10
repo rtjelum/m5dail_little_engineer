@@ -21,19 +21,10 @@ base_mount_width  = 4.6;
 // [center_x, half_span, [y_min, y_max], [z_min, z_max]]
 // The y/z ranges include the open side the servo is dropped in from.
 slots = [
-    ["ServoSizingTester", [
-        [0.000, 14.900, [10.90, 12.60], [1.50, 13.90]]
-    ]],
     ["Chest", [
         [-0.950, 14.900, [-21.30, -19.60], [16.30, 27.82]],   // arm servo
         [-0.950, 14.900, [19.60, 21.30], [16.30, 27.82]],     // arm servo
         [-0.950, 14.900, [-4.70, 4.70], [19.90, 27.82]]       // neck servo
-    ]],
-    ["Head", [
-        [-8.100, 14.900, [5.25, 6.95], [5.20, 17.60]]         // head servo
-    ]],
-    ["Chair", [
-        [10.300, 14.900, [-4.70, 4.70], [15.60, 20.30]]       // body servo
     ]],
 ];
 

@@ -5,8 +5,8 @@
 // line up with the holes in the horn's arms, so tiny screws through the horn
 // hold the part on.
 //
-// Fit it once with HornMountTest.stl. If the horn doesn't fit, measure it and
-// change the sizes below; every part that includes this file updates.
+// If the horn doesn't fit, measure it and change the sizes below; the head
+// updates.
 
 // ── Horn sizes (mm) ────────────────────────────────────────────────────────
 horn_reach    = 9;      // center to the tip of one arm

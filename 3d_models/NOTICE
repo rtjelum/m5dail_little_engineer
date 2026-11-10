@@ -2,7 +2,7 @@ Copyright (c) 2026 Krzysztof Jamroz
 
 SPDX-License-Identifier: CERN-OHL-S-2.0
 
-The hardware design files in this directory (including `cad/` and
+The hardware design files in this directory (including `openscad/` and
 `parts/`) are licensed under the CERN Open Hardware Licence Version 2
 — Strongly Reciprocal (CERN-OHL-S-2.0). The full licence text is in
 [LICENSE](LICENSE).
@@ -50,3 +50,6 @@ STL export with the servo tab slots lengthened for the GH-S37D servo
 Added `openscad/HeadM5Dial.scad` (2026-11-05): a new fixed head that holds an
 M5Stack Dial and mounts on the neck servo, replacing Head, Hat and Neck. Its
 servo shaft socket copies the dimensions of the original Neck.
+Removed `cad/` and `fusion/` (the Fusion 360 model and add-in) (2026-11-10):
+the parts are built with OpenSCAD from the ES9051 STL export in
+`openscad/base/es9051/`. The originals are at the Source Location above.

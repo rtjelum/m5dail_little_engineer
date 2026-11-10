@@ -2,8 +2,8 @@
 //
 // Replaces Head, Hat and Neck, and the head (pitch) servo. The head sits
 // directly on the neck (yaw) servo. The servo's cross horn lies inside the
-// head in an X-shaped pocket in a square pad on top of the floor (like
-// HornMountTest; see horn_mount.scad for the horn shape), so the head can't
+// head in an X-shaped pocket in a square pad on top of the floor (see
+// horn_mount.scad for the horn shape), so the head can't
 // twist. The horn's hub points down into a 5.5 mm hole through the floor,
 // and the servo shaft comes up into it from below.
 //
@@ -24,6 +24,10 @@
 // and the neck servo shaft axis is at x = shaft_x, y = 0. The underside of
 // the floor is at z = 0.
 //
+// Outside (styled like improve_robot.jpg): all edges are rounded, with a seam
+// groove around the head behind the face. The front edge is rounded with a 45-degree
+// start, so it prints face down without supports.
+//
 // Output is in print orientation: face down. No supports needed.
 
 include <horn_mount.scad>
@@ -40,6 +44,11 @@ wall            = 2.5;
 floor_t         = 3;
 head_r          = 5;      // corner radius (seen from the front)
 back_room       = 1.7;    // extra depth behind the Dial
+front_round     = 4;      // radius of the rounded front edge
+back_round      = 1.5;    // radius of the rounded back edge
+seam_x          = 8;      // seam groove, this far behind the front
+seam_w          = 0.8;
+seam_depth      = 0.6;
 
 // ── Horn mount on the floor ────────────────────────────────────────────────
 horn_wall       = 1.5;    // pad material around the horn pocket
@@ -74,9 +83,30 @@ module along_x(x0, x1) {
     translate([x0, 0, 0]) rotate([90, 0, 90]) linear_extrude(x1 - x0) children();
 }
 
+// how far the outline is inset at distance d from a rounded edge of radius r.
+// Starts at 45 degrees and blends into the circle, so it prints on the bed.
+function edge_inset(d, r) =
+    d < 0.293 * r ? 0.586 * r - d : r - sqrt(r * r - (r - d) * (r - d));
+
+// outside of the head: rounded front and back edges
+module head_outer() {
+    n = 10;
+    hull() {
+        for (i = [0 : n]) let(d = i / n * front_round)
+            along_x(-d - 0.01, -d) head_outline(edge_inset(d, front_round));
+        for (i = [0 : n]) let(d = i / n * back_round)
+            along_x(-head_d + d, -head_d + d + 0.01) head_outline(back_round - sqrt(back_round * back_round - (back_round - d) * (back_round - d)));
+    }
+}
+
+module seam_groove() {
+    along_x(-seam_x - seam_w / 2, -seam_x + seam_w / 2)
+        difference() { head_outline(-1); head_outline(seam_depth); }
+}
+
 module head_box() {
     difference() {
-        along_x(-head_d, 0) head_outline();
+        head_outer();
         // hollow inside, open at the back; floor and front plate stay solid
         difference() {
             along_x(-head_d - 1, -front_t) head_outline(wall);
@@ -121,8 +151,9 @@ module head_m5dial() {
         screen_hole();
         usb_slot();
         servo_mount();
+        seam_groove();
     }
 }
 
 // Print orientation: front face down on the bed.
-rotate([0, 90, 0]) head_m5dial();
+if (is_undef(head_m5dial_no_output)) rotate([0, 90, 0]) head_m5dial();
