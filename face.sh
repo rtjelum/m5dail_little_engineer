@@ -5,7 +5,7 @@
 #        ./face.sh sound typing [seconds] [speed|slow|normal|fast|turbo]   (default 6 s, speed 1)
 #        ./face.sh sound vol <0-255>
 #        ./face.sh servo <1-3> <0-180> [deg/s]   (no speed = jump straight there)
-#        ./face.sh arms thinking [deg/s] [min s] [max s] | arms off   (random arm, random pause; default 50 deg/s, 0.1-1 s)
+#        ./face.sh arms thinking [deg/s] [min s] [max s] | arms off   (random arm, random pause; default 100 deg/s, 0.1-1 s)
 #        ./face.sh pwm <40-330>        (servo PWM frequency in Hz, default 50)
 #        ./face.sh reset               (all servos back to default)
 #        ./face.sh rotate <0-3>        (0 = normal, 1 = 90° cw, 2 = 180°, 3 = 270°)

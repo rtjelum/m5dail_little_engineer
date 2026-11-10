@@ -32,12 +32,13 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 
 `arms thinking` makes the arms type like the robot is working on a laptop:
 
-- One keystroke at a time: a random arm presses and comes back up. Servo 1 rests at 120° and presses to 130°. Servo 3 rests at 50° and presses to 40°.
+- One keystroke at a time: a random arm presses and comes back up. Servo 1 rests at 135° and presses to 145°. Servo 3 rests at 40° and presses to 30°.
 - After each keystroke there is a random pause.
 - Every 6–15 s, servo 3 lifts to 80° at 30 deg/s, holds briefly and goes back, while servo 1 keeps typing.
+- Every 2–10 s, the head (servo 2) turns to a random angle between 85° and 95° at 40 deg/s.
 - All moves ease in and out to keep the servos quiet.
 
-The angles and timings are at the top of the arm code in `m5dail_proj.ino` (`ARM_SWINGS`, `ARM_LIFT_*`).
+The angles and timings are at the top of the arm code in `m5dail_proj.ino` (`ARM_SWINGS`, `ARM_LIFT_*`, `HEAD_*`).
 
 ## The robot (3D model)
 
@@ -138,7 +139,7 @@ python3 serial_monitor.py
 | `help` | List commands |
 | `status` | Print current state, encoder value and last RFID UID |
 | `servo <1-3> <0-180> [deg/s]` | Set a servo angle. With a speed it moves there smoothly, without it jumps. |
-| `arms thinking [deg/s] [min s] [max s]` | Start the typing arms (see below). Defaults: 50 deg/s, pause 0.1–1 s. One pause value = fixed pause. |
+| `arms thinking [deg/s] [min s] [max s]` | Start the typing arms (see below). Defaults: 100 deg/s, pause 0.1–1 s. One pause value = fixed pause. |
 | `arms off` | Finish the current keystroke, then return the arms to their default angles |
 | `face [bot\|eyes] <name\|cycle\|off>` | Show an expression. `face` alone lists them. |
 | `sound <name\|stop\|vol N>` | Play a sound. `sound typing [seconds] [speed]` plays keyboard clicks. `sound` alone lists them. |

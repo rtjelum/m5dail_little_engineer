@@ -49,7 +49,7 @@ bool pcaBegin() {
 float servoCur[NUM_SERVOS], servoTarget[NUM_SERVOS], servoSpeed[NUM_SERVOS];
 unsigned long servoLastUpdate = 0;
 bool armsThinking = false;   // "arms thinking [deg/s]" serial command: arm typing swing on/off
-float armsSpeed = 50;        // swing speed in deg/s
+float armsSpeed = 100;       // arm move speed in deg/s
 float armsPauseMin = 0.1f, armsPauseMax = 1.0f;   // random pause range in seconds between arm moves
 bool  armsCancel = false;    // set by "reset": drop any arm motion in progress
 
@@ -688,7 +688,7 @@ void setup() {
 // Servo 3 also lifts to 80 deg now and then (see ARM_LIFT). "arms off" lets the current keystroke finish, then both arms ease back to their default angles.
 // armsSpeed = average deg/s of a move.
 struct ArmSwing { int ch; float home, press; };
-const ArmSwing ARM_SWINGS[] = {{0, 120, 130}, {2, 50, 40}};   // {channel, home (key up), press (key down)}
+const ArmSwing ARM_SWINGS[] = {{0, 135, 145}, {2, 40, 30}};   // {channel, home (key up), press (key down)}
 constexpr int NUM_ARM_SWINGS = sizeof(ARM_SWINGS) / sizeof(ARM_SWINGS[0]);
 constexpr unsigned long ARM_PRESS_HOLD_MS = 40;   // short hold at the bottom of a keystroke
 // Now and then while typing, servo 3 lifts to 80 deg at 30 deg/s, holds a moment, and goes back (other arm keeps typing).
@@ -704,13 +704,23 @@ static void armTweenTo(int i, float to, unsigned long now, float speed, bool the
     armTw[i] = {true, from, to, now, (unsigned long)max(1.0f, fabsf(to - from) / speed * 1000), thenHome, holdMs, speed};
 }
 
+// While typing, the head (servo 2) looks around: every 2-10 s it turns to a random angle 85..95 deg at 40 deg/s.
+constexpr int   HEAD_CH = 1;
+constexpr float HEAD_MIN_DEG = 85, HEAD_MAX_DEG = 95, HEAD_SPEED = 40;
+constexpr long  HEAD_EVERY_MS[2] = {2000, 10000};
+ArmTween headTw;
+static void headTweenTo(float to, unsigned long now) {
+    float from = servoCur[HEAD_CH];
+    headTw = {true, from, to, now, (unsigned long)max(1.0f, fabsf(to - from) / HEAD_SPEED * 1000), false, 0, HEAD_SPEED};
+}
+
 static bool armsBusy() { for (auto& t : armTw) if (t.on) return true; return false; }
 
 void armsUpdate(bool active) {
     enum { IDLE, TO_HOME, TYPING, FINISHING } static state = IDLE;
-    static unsigned long nextKeyAt = 0, nextLiftAt = 0, last = 0;
+    static unsigned long nextKeyAt = 0, nextLiftAt = 0, nextHeadAt = 0, last = 0;
     unsigned long now = millis();
-    if (armsCancel) { armsCancel = false; for (auto& t : armTw) t.on = false; state = IDLE; }
+    if (armsCancel) { armsCancel = false; for (auto& t : armTw) t.on = false; headTw.on = false; state = IDLE; }
     if (!pcaOk || now - last < 20) return;
     last = now;
 
@@ -726,15 +736,25 @@ void armsUpdate(bool active) {
         else if (t.thenHome) t.on = true;   // still holding at the bottom
     }
 
+    if (headTw.on) {
+        float k = min(1.0f, (now - headTw.start) / (float)headTw.dur);
+        servoMoveTo(HEAD_CH, headTw.from + (headTw.to - headTw.from) * (0.5f - 0.5f * cosf(PI * k)), 0);
+        if (k >= 1) headTw.on = false;
+    }
+
     switch (state) {
     case IDLE:
         if (active) { for (int i = 0; i < NUM_ARM_SWINGS; i++) armTweenTo(i, ARM_SWINGS[i].home, now, armsSpeed); state = TO_HOME; }
         break;
     case TO_HOME:   // both arms move to their home (key-up) position first
-        if (!armsBusy()) { state = active ? TYPING : FINISHING; nextKeyAt = now; nextLiftAt = now + random(ARM_LIFT_EVERY_MS[0], ARM_LIFT_EVERY_MS[1]); }
+        if (!armsBusy()) { state = active ? TYPING : FINISHING; nextKeyAt = now; nextLiftAt = now + random(ARM_LIFT_EVERY_MS[0], ARM_LIFT_EVERY_MS[1]); nextHeadAt = now + random(HEAD_EVERY_MS[0], HEAD_EVERY_MS[1]); }
         break;
     case TYPING:
         if (!active) { state = FINISHING; break; }
+        if ((long)(now - nextHeadAt) >= 0 && !headTw.on) {
+            headTweenTo(random((long)(HEAD_MIN_DEG * 10), (long)(HEAD_MAX_DEG * 10) + 1) / 10.0f, now);
+            nextHeadAt = now + headTw.dur + random(HEAD_EVERY_MS[0], HEAD_EVERY_MS[1]);
+        }
         if ((long)(now - nextLiftAt) >= 0 && !armTw[ARM_LIFT].on) {
             armTweenTo(ARM_LIFT, ARM_LIFT_DEG, now, ARM_LIFT_SPEED, true, random(ARM_LIFT_HOLD_MS[0], ARM_LIFT_HOLD_MS[1]));
             nextLiftAt = now + 2 * armTw[ARM_LIFT].dur + armTw[ARM_LIFT].holdMs + random(ARM_LIFT_EVERY_MS[0], ARM_LIFT_EVERY_MS[1]);
@@ -750,7 +770,11 @@ void armsUpdate(bool active) {
         break;
     case FINISHING:   // wait for the keystroke to complete, then ease back to rest
         if (active) { state = TYPING; break; }
-        if (!armsBusy()) { for (int i = 0; i < NUM_ARM_SWINGS; i++) armTweenTo(i, SERVO_DEFAULT_DEG[ARM_SWINGS[i].ch], now, armsSpeed); state = IDLE; }
+        if (!armsBusy() && !headTw.on) {
+            for (int i = 0; i < NUM_ARM_SWINGS; i++) armTweenTo(i, SERVO_DEFAULT_DEG[ARM_SWINGS[i].ch], now, armsSpeed);
+            headTweenTo(SERVO_DEFAULT_DEG[HEAD_CH], now);
+            state = IDLE;
+        }
         break;
     }
 }
