@@ -4,7 +4,7 @@
 #pragma once
 
 enum EyeStyle : uint8_t { EYE_PUPIL, EYE_HAPPY, EYE_RING, EYE_HEART, EYE_CLOSED_UP, EYE_CLOSED_DOWN, EYE_HEART_PUPIL, EYE_WIDE };
-enum FaceId   : uint8_t { F_HAPPY, F_SAD, F_SURPRISED, F_ANGRY, F_EXCITED, F_CONFUSED, F_THINKING, F_WINKING, F_LOVE, F_SLEEPING, FACE_COUNT };
+enum FaceId   : uint8_t { F_HAPPY, F_SAD, F_SURPRISED, F_ANGRY, F_EXCITED, F_CONFUSED, F_THINKING, F_WINKING, F_LOVE, F_SLEEPING, F_DONE, F_QUESTION, FACE_COUNT };
 
 constexpr float NO_LID = -9.0f, NO_BROW = -9.0f;
 
@@ -25,6 +25,8 @@ const FaceSpec FACES[FACE_COUNT] = {
   {"winking",   210, 255, 40, {{EYE_PUPIL, NO_LID, NO_LID, -1.30f, -1.55f, -1.30f},   {EYE_PUPIL, NO_LID, NO_LID, -1.30f, -1.55f, -1.30f}},   0.0f,  0.0f},   // right eye winks (animated)
   {"love",      255, 60,  90, {{EYE_HEART_PUPIL, NO_LID, NO_LID, FACE_BROW_ARCH, 0.25f}, {EYE_HEART_PUPIL, NO_LID, NO_LID, FACE_BROW_ARCH, 0.25f}},           0.0f,  0.0f},
   {"sleeping",  60, 120, 255, {{EYE_CLOSED_DOWN, NO_LID, NO_LID, NO_BROW, 0, 0},      {EYE_CLOSED_DOWN, NO_LID, NO_LID, NO_BROW, 0, 0}},      0.0f,  0.0f},
+  {"done",      60, 120, 255, {{EYE_CLOSED_UP, NO_LID, NO_LID, NO_BROW, 0, 0},        {EYE_CLOSED_UP, NO_LID, NO_LID, NO_BROW, 0, 0}},        0.0f,  0.0f},   // own drawing: drawDoneFace()
+  {"question",  60, 120, 255, {{EYE_PUPIL, NO_LID, NO_LID, NO_BROW, 0, 0},            {EYE_PUPIL, NO_LID, NO_LID, NO_BROW, 0, 0}},            0.0f,  0.0f},   // own drawing: drawQuestionFace()
 };
 
 constexpr int   FACE_EYE_R = 36, FACE_EYE_Y = 126;
@@ -169,6 +171,8 @@ const BotFace BOT_FACES[FACE_COUNT] = {
   /* winking   */ {{{BE_DOT, 1, NO_LID, NO_LID},          {BE_DOT, 1, NO_LID, NO_LID}},          {150, 44, 10, 0, 6, 2, 6, 0}},
   /* love      */ {{{BE_HEART, 1, NO_LID, NO_LID},        {BE_HEART, 1, NO_LID, NO_LID}},        {150, 40, 12, 0, 0, 2, 7, 0}},
   /* sleeping  */ {{{BE_BAR, 1, NO_LID, NO_LID},          {BE_BAR, 1, NO_LID, NO_LID}},          {140, 42, 0, 0, 0, 2, 6, 0}},
+  /* done      */ {{{BE_ARC, 1, NO_LID, NO_LID},          {BE_ARC, 1, NO_LID, NO_LID}},          {160, 46, 14, 0, 0, 2, 7, 0}},   // not used: drawDoneFace()
+  /* question  */ {{{BE_DOT, 1, NO_LID, NO_LID},          {BE_DOT, 1, NO_LID, NO_LID}},          {66, 70, 0, 0, 0, 4, 4, 0}},     // not used: drawQuestionFace()
 };
 
 constexpr int BOT_EYE_R = 40, BOT_EYE_Y = 88, BOT_MOUTH_Y = 172;
@@ -289,6 +293,85 @@ static void faceReading(float t, float& rx, float& ry) {
     }
 }
 
+// "Job done" face (same in both styles): blue face, pale-yellow eyes squeezed shut in happy arcs,
+// a big open laughing mouth with a pink tongue, and three little orange lights on the forehead.
+// Blue background and three little orange forehead lights, twinkling one after another (done + question faces).
+static void cartoonBase(float t, float dy) {
+    canvas.fillScreen(canvas.color565(36, 84, 150));
+    for (int d = -1; d <= 1; d++) {
+        float k = 0.55f + 0.45f * (0.5f + 0.5f * sinf(t * 5 - d * 1.2f));
+        canvas.fillCircle(120 + d * 12, 30 + dy, d == 0 ? 5 : 3, canvas.color565(255 * k, 150 * k, 50 * k));
+    }
+}
+static uint16_t cartoonDark() { return canvas.color565(22, 24, 40); }
+static uint16_t cartoonEye()  { return canvas.color565(250, 236, 160); }
+
+static void drawDoneFace(float t) {
+    float bounce = -fabsf(sinf(t * 4)) * 5;                // happy hop
+    float laugh = 0.88f + 0.12f * fabsf(sinf(t * 8));      // mouth opens and closes a little
+    uint16_t dark = cartoonDark();
+    cartoonBase(t, bounce * 0.5f);
+    for (int i = 0; i < 2; i++) {
+        float ex = i == 0 ? 76 : 164, ey = 92 + bounce;
+        canvas.fillCircle(ex, ey, 38, cartoonEye());
+        float cy = ey + 8, r = 18, w = 6, rm = r - w / 2;   // closed eye: thick upside-down U with round ends
+        canvas.fillArc(ex, cy, r, r - w, 190, 350, dark);
+        for (float a : {190.0f, 350.0f}) canvas.fillCircle(ex + rm * cosf(a * DEG_TO_RAD), cy + rm * sinf(a * DEG_TO_RAD), w / 2, dark);
+    }
+    // Mouth: flat-ish top with raised corners, round bottom (a "D" on its side), tongue at the bottom.
+    const float mx = 120, my = 150 + bounce, halfW = 54, h = 50 * laugh;
+    uint16_t pink = canvas.color565(240, 140, 150);
+    float tx = mx, ty = my + h - 13, trx = 24, try_ = 12;
+    for (int x = -(int)halfW; x <= (int)halfW; x++) {
+        float u = x / halfW, top = my - 7 * u * u, bot = my + h * sqrtf(fmaxf(0, 1 - u * u));
+        if (bot <= top) continue;
+        canvas.drawFastVLine(mx + x, top, bot - top + 1, dark);
+        float du = (mx + x - tx) / trx;                    // tongue column, clipped to the mouth
+        if (fabsf(du) < 1) {
+            float hh = try_ * sqrtf(1 - du * du), t0 = fmaxf(top, ty - hh), t1 = fminf(bot - 2, ty + hh);
+            if (t1 > t0) canvas.drawFastVLine(mx + x, t0, t1 - t0 + 1, pink);
+        }
+    }
+}
+
+// "Question" face: eyes rolled up to the top-right, one brow raised, a small puzzled "o" mouth
+// and a big "?" bobbing on the right.
+static void drawQuestionFace(float t, float closed) {
+    float dy = sinf(t * 1.6f) * 2;
+    uint16_t dark = cartoonDark(), brow = canvas.color565(150, 105, 75);
+    cartoonBase(t, dy * 0.5f);
+    // Pupils glance between up-right and straight up now and then.
+    float g = fmodf(t, 4.0f), glance = g < 2.6f ? 0 : g < 2.8f ? (g - 2.6f) / 0.2f : g < 3.6f ? 1 : 1 - (g - 3.6f) / 0.4f;
+    float lx = 0.38f - 0.30f * glance, ly = -0.38f + 0.06f * glance;
+    float raise = 4 * (0.5f + 0.5f * sinf(t * 2.2f));      // right brow wiggles up and down
+    const float EX[2] = {82, 142}, EY[2] = {120, 112}, ER[2] = {28, 32};
+    for (int i = 0; i < 2; i++) {
+        float ex = EX[i], ey = EY[i] + dy, R = ER[i];
+        canvas.fillCircle(ex, ey, R + 2, dark);
+        canvas.fillCircle(ex, ey, R, cartoonEye());
+        float pr = R * 0.36f, px = ex + lx * R, py = ey + ly * R;
+        canvas.fillCircle(px, py, pr, dark);
+        canvas.fillCircle(px + pr * 0.35f, py - pr * 0.35f, pr * 0.32f, TFT_WHITE);
+        if (closed > 0) { float h = 2 * (R + 2) * closed; canvas.fillRect(ex - R - 3, ey - R - 3, 2 * R + 6, h, canvas.color565(36, 84, 150)); }
+        // Brow: thick brown arc above the eye with round ends; the right one sits higher.
+        float br = R + (i == 0 ? 10 : 14), by = ey - (i == 0 ? 2 : 4 + raise), a0 = i == 0 ? 225 : 240, a1 = i == 0 ? 290 : 310, w = 6, rm = br - w / 2;
+        canvas.fillArc(ex, by, br, br - w, a0, a1, brow);
+        for (float a : {a0, a1}) canvas.fillCircle(ex + rm * cosf(a * DEG_TO_RAD), by + rm * sinf(a * DEG_TO_RAD), w / 2, brow);
+    }
+    // Small "o" mouth with the tip of a pink tongue, and a little chin line.
+    float m = 1 + 0.1f * sinf(t * 3), mx = 114, my = 178 + dy;
+    canvas.fillEllipse(mx, my, 12 * m, 11 * m, dark);
+    canvas.fillEllipse(mx - 4, my + 3 * m, 7 * m, 5 * m, canvas.color565(240, 140, 150));
+    canvas.fillArc(mx + 2, my + 14, 8, 6, 30, 150, dark);
+    // Big question mark, bobbing.
+    canvas.setTextDatum(middle_center);
+    canvas.setFont(&fonts::FreeSansBold24pt7b);
+    canvas.setTextSize(1.25f);
+    canvas.setTextColor(canvas.color565(245, 245, 235));
+    canvas.drawString("?", 196, 104 + sinf(t * 2.5f) * 5);
+    canvas.setTextSize(1);
+}
+
 static float facePulse(float x) { return x >= 0 ? expf(-x * 12.0f) : 0.0f; }
 
 void drawFace() {
@@ -307,6 +390,14 @@ void drawFace() {
 
     const FaceSpec& f = FACES[faceIdx];
     float t = now / 1000.0f;
+    if (faceIdx == F_DONE && closed == 0) { drawDoneFace(t); canvas.pushSprite(0, 0); return; }
+    if (faceIdx == F_DONE) { canvas.fillScreen(faceBg()); canvas.pushSprite(0, 0); return; }   // during the switch-over blink
+    if (faceIdx == F_QUESTION) {   // blinks like the other faces
+        float c = closed, bp = (now - faceBlinkStart) / (float)FACE_BLINK_MS;
+        if (now >= faceNextBlink) { faceBlinkStart = now; faceNextBlink = now + random(2200, 5500); }
+        if (bp < 1) c = max(c, 1 - fabsf(2 * bp - 1));
+        drawQuestionFace(t, c); canvas.pushSprite(0, 0); return;
+    }
 
     if (faceIdx != F_SLEEPING && now >= faceNextBlink) { faceBlinkStart = now; faceNextBlink = now + random(2200, 5500); }
     float bp = (now - faceBlinkStart) / (float)FACE_BLINK_MS;

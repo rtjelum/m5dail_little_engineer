@@ -89,6 +89,7 @@ static void typingUpdate() {
 }
 
 void soundPlay(int idx) { typingUntil = 0; soundCur = &SOUNDS[idx]; soundStep = 0; soundStartStep(); }
+void soundPlayNamed(const char* name) { for (int i = 0; i < SOUND_COUNT; i++) if (!strcmp(SOUNDS[i].name, name)) { soundPlay(i); return; } }
 void soundStop() { soundCur = nullptr; typingUntil = 0; M5Dial.Speaker.stop(); }
 
 // Call every loop: advances steps and updates slide pitch.

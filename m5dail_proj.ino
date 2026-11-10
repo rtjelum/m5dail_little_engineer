@@ -52,6 +52,8 @@ bool armsThinking = false;   // "arms thinking [deg/s]" serial command: arm typi
 float armsSpeed = 100;       // arm move speed in deg/s
 float armsPauseMin = 0.1f, armsPauseMax = 1.0f;   // random pause range in seconds between arm moves
 bool  armsCancel = false;    // set by "reset": drop any arm motion in progress
+enum ArmsPose : uint8_t { POSE_NONE, POSE_DONE, POSE_QUESTION };
+ArmsPose armsPose = POSE_NONE;   // "arms done|question" (or "done" / "question"): a pose that replaces typing (see DONE_*, QUESTION_*)
 
 static void servoWriteDeg(int ch, float deg) {
     if (!pcaOk) return;
@@ -621,6 +623,17 @@ void selectServo(int idx) {
     drawEncoderGauge(pos);
 }
 
+// Start the typing arms. args: "[deg/s] [min s] [max s]" (all optional; one pause value = fixed pause).
+static void armsThinkingStart(const char* args, const char* tag) {
+    float sp = 0, p1 = 0, p2 = 0;
+    int got = sscanf(args, "%f %f %f", &sp, &p1, &p2);
+    if (got >= 1) armsSpeed = constrain(sp, 1.0f, 500.0f);
+    if (got == 2) armsPauseMin = armsPauseMax = constrain(p1, 0.0f, 10.0f);
+    if (got >= 3) { armsPauseMin = constrain(min(p1, p2), 0.0f, 10.0f); armsPauseMax = constrain(max(p1, p2), 0.0f, 10.0f); }
+    armsThinking = true; armsPose = POSE_NONE;
+    Serial.printf("[%s] thinking at %.0f deg/s, pause %.2f-%.2f s\n", tag, armsSpeed, armsPauseMin, armsPauseMax);
+}
+
 static String serialBuf = "";
 void handleSerial() {
     while (Serial.available()) {
@@ -628,7 +641,7 @@ void handleSerial() {
         if (c == '\n') {
             serialBuf.trim(); if (serialBuf.length() == 0 || serialBuf[0] == '[') { serialBuf = ""; return; }   // skip blanks and echoed replies
             if (serialBuf.equalsIgnoreCase("status")) { xSemaphoreTake(dataMutex, portMAX_DELAY); long enc = currentEncoderPos; String rfi = last_rfid; xSemaphoreGive(dataMutex); Serial.printf("[status] state=%d enc=%ld rfid=%s\n", (int)gState, enc, rfi.length() ? rfi.c_str() : "(none)"); }
-            else if (serialBuf.equalsIgnoreCase("help")) Serial.println("[help] status, reset, servo <1-3> <0-180> [deg/s], arms thinking [deg/s]|off, pwm <Hz>, face [bot|eyes] <name|cycle|off>, sound <name|stop|vol N>, rotate <0-3>, <text>");
+            else if (serialBuf.equalsIgnoreCase("help")) Serial.println("[help] status, reset, servo <1-3> <0-180> [deg/s], arms thinking [deg/s]|done|question|off, thinking [deg/s] [min s] [max s], done, question, sleep, pwm <Hz>, face [bot|eyes] <name|cycle|off>, sound <name|stop|vol N>, rotate <0-3>, <text>");
             else if (serialBuf.equalsIgnoreCase("scan")) { int pins[2][2] = {{13, 15}, {15, 13}}; for (int k = 0; k < 2; k++) { Wire.end(); pinMode(13, INPUT); pinMode(15, INPUT); delay(2); Serial.printf("[scan] idle G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); if (k == 0 && !digitalRead(13)) { pinMode(15, OUTPUT_OPEN_DRAIN); for (int c = 0; c < 18; c++) { digitalWrite(15, c & 1); delayMicroseconds(10); } pinMode(15, INPUT); delay(1); Serial.printf("[scan] after 9 clocks G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); pinMode(13, INPUT_PULLUP); delay(1); Serial.printf("[scan] G13 with pullup=%d\n", digitalRead(13)); pinMode(13, INPUT); } Wire.begin(pins[k][0], pins[k][1], 100000); Serial.printf("[scan] SDA=G%d SCL=G%d:", pins[k][0], pins[k][1]); for (int ad = 1; ad < 127; ad++) { Wire.beginTransmission(ad); if (Wire.endTransmission() == 0) Serial.printf(" 0x%02x", ad); } Serial.println(); } Wire.end(); pcaOk = pcaBegin(); Serial.printf("[scan] pcaOk=%d\n", pcaOk); }
             else if (serialBuf.equalsIgnoreCase("pca")) { Serial.printf("[pca] ok=%d MODE1=%02x MODE2=%02x PRESCALE=%d\n", pcaOk, pcaRead8(0x00), pcaRead8(0x01), pcaRead8(0xFE)); for (int ch = 0; ch < NUM_SERVOS; ch++) { uint8_t r[4]; for (int k = 0; k < 4; k++) r[k] = pcaRead8(0x06 + 4 * ch + k); Serial.printf("[pca] ch%d on=%u off=%u\n", ch, r[0] | (r[1] << 8), r[2] | (r[3] << 8)); } }
             else if (serialBuf.startsWith("servo ")) {   // servo <n> <deg> [deg/s]
@@ -654,18 +667,27 @@ void handleSerial() {
             else if (serialBuf.startsWith("arms")) {   // arms thinking [deg/s] | arms off
                 String a = serialBuf.substring(4); a.trim();
                 String lower = a; lower.toLowerCase();
-                if (lower == "thinking" || lower.startsWith("thinking ")) {
-                    float sp = 0, p1 = 0, p2 = 0;
-                    int got = sscanf(a.c_str() + 8, "%f %f %f", &sp, &p1, &p2);
-                    if (got >= 1) armsSpeed = constrain(sp, 1.0f, 500.0f);
-                    if (got == 2) armsPauseMin = armsPauseMax = constrain(p1, 0.0f, 10.0f);   // one value = fixed pause
-                    if (got >= 3) { armsPauseMin = constrain(min(p1, p2), 0.0f, 10.0f); armsPauseMax = constrain(max(p1, p2), 0.0f, 10.0f); }
-                    armsThinking = true; Serial.printf("[arms] thinking at %.0f deg/s, pause %.2f-%.2f s\n", armsSpeed, armsPauseMin, armsPauseMax);
-                }
-                else if (a.equalsIgnoreCase("off") || a.equalsIgnoreCase("stop")) { armsThinking = false; Serial.println("[arms] off"); }
-                else Serial.println("[arms] usage: arms thinking [deg/s] [min s] [max s] | arms off");
+                if (lower == "thinking" || lower.startsWith("thinking ")) armsThinkingStart(a.c_str() + 8, "arms");
+                else if (a.equalsIgnoreCase("done"))     { armsThinking = false; armsPose = POSE_DONE;     Serial.println("[arms] done"); }
+                else if (a.equalsIgnoreCase("question")) { armsThinking = false; armsPose = POSE_QUESTION; Serial.println("[arms] question"); }
+                else if (a.equalsIgnoreCase("off") || a.equalsIgnoreCase("stop")) { armsThinking = false; armsPose = POSE_NONE; Serial.println("[arms] off"); }
+                else Serial.println("[arms] usage: arms thinking [deg/s] [min s] [max s] | arms done | arms question | arms off");
             }
-            else if (serialBuf.equalsIgnoreCase("reset")) { armsThinking = false; armsCancel = true; servosToDefault(); if (gState == GState::IDLE) selectServo(activeServo); }
+            else if (serialBuf.equalsIgnoreCase("thinking") || serialBuf.startsWith("thinking ")) {   // thinking face + typing arms
+                faceCycling = false; faceShow(F_THINKING, faceBot);
+                armsThinkingStart(serialBuf.c_str() + 8, "thinking");
+            }
+            else if (serialBuf.equalsIgnoreCase("sleep")) {   // eyes-style sleeping face, arms back to rest
+                armsThinking = false; armsPose = POSE_NONE; faceCycling = false; faceShow(F_SLEEPING, false);
+                Serial.println("[sleep] face eyes sleeping, arms off");
+            }
+            else if (serialBuf.equalsIgnoreCase("done") || serialBuf.equalsIgnoreCase("question")) {   // face + sound + arm pose
+                bool done = serialBuf.equalsIgnoreCase("done");
+                armsThinking = false; armsPose = done ? POSE_DONE : POSE_QUESTION; faceCycling = false;
+                faceShow(done ? F_DONE : F_QUESTION, faceBot); soundPlayNamed(done ? "done" : "question");
+                Serial.printf("[%s] face, sound and arms (stop with \"arms off\")\n", done ? "done" : "question");
+            }
+            else if (serialBuf.equalsIgnoreCase("reset")) { armsThinking = false; armsPose = POSE_NONE; armsCancel = true; servosToDefault(); if (gState == GState::IDLE) selectServo(activeServo); }
             else { char buf[81]; serialBuf.substring(0, 80).toCharArray(buf, sizeof(buf)); xQueueSend(msgQueue, buf, 0); }
             serialBuf = "";
         } else if (serialBuf.length() < 80) serialBuf += c;
@@ -704,7 +726,8 @@ static void armTweenTo(int i, float to, unsigned long now, float speed, bool the
     armTw[i] = {true, from, to, now, (unsigned long)max(1.0f, fabsf(to - from) / speed * 1000), thenHome, holdMs, speed};
 }
 
-// While typing, the head (servo 2) looks around: every 2-10 s it turns to a random angle 85..95 deg at 40 deg/s.
+// While typing, the head (servo 2) can look around: every 2-10 s it turns to a random angle 85..95 deg at 40 deg/s.
+constexpr bool  HEAD_TURNS = false;   // off: the head stays still while typing
 constexpr int   HEAD_CH = 1;
 constexpr float HEAD_MIN_DEG = 85, HEAD_MAX_DEG = 95, HEAD_SPEED = 40;
 constexpr long  HEAD_EVERY_MS[2] = {2000, 10000};
@@ -714,13 +737,23 @@ static void headTweenTo(float to, unsigned long now) {
     headTw = {true, from, to, now, (unsigned long)max(1.0f, fabsf(to - from) / HEAD_SPEED * 1000), false, 0, HEAD_SPEED};
 }
 
+// "Job done" pose: servo 1 goes to 120 deg, servo 3 waves between 80 and 90 deg every 2 s, all at 100 deg/s.
+constexpr float DONE_ARM1_DEG = 120, DONE_WAVE_DEG[2] = {80, 90}, DONE_SPEED = 100;
+constexpr unsigned long DONE_WAVE_MS = 2000;
+// "Question" pose: servo 1 moves to 90 deg at 100 deg/s, back to 110 deg at 30 deg/s, pauses 1 s, and repeats.
+constexpr float QUESTION_DEG[2] = {90, 110}, QUESTION_SPEED[2] = {100, 30};
+constexpr unsigned long QUESTION_PAUSE_MS = 1000;
+ArmsPose posePlaying = POSE_NONE;   // pose the arms are in now (lags armsPose by one frame)
+
 static bool armsBusy() { for (auto& t : armTw) if (t.on) return true; return false; }
 
 void armsUpdate(bool active) {
     enum { IDLE, TO_HOME, TYPING, FINISHING } static state = IDLE;
     static unsigned long nextKeyAt = 0, nextLiftAt = 0, nextHeadAt = 0, last = 0;
     unsigned long now = millis();
-    if (armsCancel) { armsCancel = false; for (auto& t : armTw) t.on = false; headTw.on = false; state = IDLE; }
+    static unsigned long nextWaveAt = 0;
+    static int waveSide = 0;
+    if (armsCancel) { armsCancel = false; for (auto& t : armTw) t.on = false; headTw.on = false; state = IDLE; posePlaying = POSE_NONE; }
     if (!pcaOk || now - last < 20) return;
     last = now;
 
@@ -742,6 +775,37 @@ void armsUpdate(bool active) {
         if (k >= 1) headTw.on = false;
     }
 
+    // A pose (done / question) overrides typing. When it ends, everything eases back to the default angles.
+    if (armsPose != POSE_NONE) {
+        if (posePlaying != armsPose) {   // start the pose
+            posePlaying = armsPose; state = IDLE; waveSide = 0; nextWaveAt = now + DONE_WAVE_MS;
+            headTweenTo(SERVO_DEFAULT_DEG[HEAD_CH], now);
+            if (armsPose == POSE_DONE) {
+                armTweenTo(0, DONE_ARM1_DEG, now, DONE_SPEED);
+                armTweenTo(1, DONE_WAVE_DEG[0], now, DONE_SPEED);
+            } else {
+                armTweenTo(0, QUESTION_DEG[0], now, QUESTION_SPEED[0]);
+                armTweenTo(1, SERVO_DEFAULT_DEG[ARM_SWINGS[1].ch], now, DONE_SPEED);
+            }
+        } else if (armsPose == POSE_DONE && (long)(now - nextWaveAt) >= 0) {
+            waveSide ^= 1;
+            armTweenTo(1, DONE_WAVE_DEG[waveSide], now, DONE_SPEED);
+            nextWaveAt = now + DONE_WAVE_MS;
+        } else if (armsPose == POSE_QUESTION && !armTw[0].on) {   // reached one end: head for the other
+            if (waveSide == 1 && nextWaveAt == 0) { nextWaveAt = now + QUESTION_PAUSE_MS; return; }   // back at 110: pause first
+            if (waveSide == 1 && (long)(now - nextWaveAt) < 0) return;
+            nextWaveAt = 0;
+            waveSide ^= 1;
+            armTweenTo(0, QUESTION_DEG[waveSide], now, QUESTION_SPEED[waveSide]);
+        }
+        return;
+    }
+    if (posePlaying != POSE_NONE) {
+        posePlaying = POSE_NONE; state = IDLE;
+        for (int i = 0; i < NUM_ARM_SWINGS; i++) armTweenTo(i, SERVO_DEFAULT_DEG[ARM_SWINGS[i].ch], now, DONE_SPEED);
+        return;
+    }
+
     switch (state) {
     case IDLE:
         if (active) { for (int i = 0; i < NUM_ARM_SWINGS; i++) armTweenTo(i, ARM_SWINGS[i].home, now, armsSpeed); state = TO_HOME; }
@@ -751,7 +815,7 @@ void armsUpdate(bool active) {
         break;
     case TYPING:
         if (!active) { state = FINISHING; break; }
-        if ((long)(now - nextHeadAt) >= 0 && !headTw.on) {
+        if (HEAD_TURNS && (long)(now - nextHeadAt) >= 0 && !headTw.on) {
             headTweenTo(random((long)(HEAD_MIN_DEG * 10), (long)(HEAD_MAX_DEG * 10) + 1) / 10.0f, now);
             nextHeadAt = now + headTw.dur + random(HEAD_EVERY_MS[0], HEAD_EVERY_MS[1]);
         }

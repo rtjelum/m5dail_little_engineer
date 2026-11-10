@@ -9,8 +9,9 @@ The robot is a remix of [Tiny Engineer](https://github.com/jamro/tiny-engineer) 
 
 Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-S3, round 240×240 display, rotary encoder, touch, RFID). It does these things:
 
-- **Animated robot faces**: two styles ("bot" and "eyes") with ten expressions and matching sounds.
+- **Animated robot faces**: two styles ("bot" and "eyes") with ten expressions and matching sounds, plus cartoon "done" and "question" faces.
 - **Typing arms**: the robot's two arm servos "type on a laptop" while the thinking face reads the screen.
+- **One-word animations**: `thinking`, `done`, `question` and `sleep` set the face, sound and arm movement together.
 - **Servo control**: the dial drives three hobby servos through a PCA9685 board on Port A, with a round gauge showing the angle.
 - **RFID reader**: tap a card and its UID is shown on screen.
 - **Serial messages**: text sent over USB serial is shown as a message card.
@@ -20,25 +21,48 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 
 <p align="center"><a href="m5_dail_robot.mp4">Watch the video with sound (MP4)</a></p>
 
-`face.sh` sends one command from the terminal and prints the reply. Words other than `sound`, `servo`, `arms`, `pwm`, `rotate` and `reset` are sent as a face command:
+`face.sh` sends one command from the terminal and prints the reply. Words other than `sound`, `servo`, `arms`, `pwm`, `rotate`, `reset`, `thinking`, `done`, `question` and `sleep` are sent as a face command:
 
 ```sh
-./face.sh bot thinking
-./face.sh arms thinking 40 0.2 1.5
+./face.sh thinking
+./face.sh thinking 40 0.2 1.5
+./face.sh bot happy
 ./face.sh sound done
+./face.sh done
+./face.sh question
+./face.sh sleep
 ```
 
 ### Typing arms
 
-`arms thinking` makes the arms type like the robot is working on a laptop:
+`thinking` shows the thinking face and starts the typing arms. It takes the same optional speed and pause values as `arms thinking`, which starts only the arms (`face thinking` starts only the face). The arms type like the robot is working on a laptop:
 
 - One keystroke at a time: a random arm presses and comes back up. Servo 1 rests at 135° and presses to 145°. Servo 3 rests at 40° and presses to 30°.
 - After each keystroke there is a random pause.
 - Every 6–15 s, servo 3 lifts to 80° at 30 deg/s, holds briefly and goes back, while servo 1 keeps typing.
-- Every 2–10 s, the head (servo 2) turns to a random angle between 85° and 95° at 40 deg/s.
+- The head (servo 2) stays still. Set `HEAD_TURNS = true` to make it turn to a random angle between 85° and 95° at 40 deg/s every 2–10 s.
 - All moves ease in and out to keep the servos quiet.
 
 The angles and timings are at the top of the arm code in `m5dail_proj.ino` (`ARM_SWINGS`, `ARM_LIFT_*`, `HEAD_*`).
+
+### Job done
+
+`done` shows the "done" face (blue, eyes shut in happy arcs, big laughing mouth), plays the done bell and puts the arms in the done pose:
+
+- Servo 1 moves to 120°.
+- Servo 3 waves between 80° and 90°, switching every 2 s.
+- All moves at 100 deg/s, eased in and out.
+
+`arms done` starts only the pose and `face done` only the face. `arms off` ends the pose and eases the arms back to their default angles. The values are `DONE_*` in `m5dail_proj.ino`.
+
+### Question
+
+`question` shows the "question" face (eyes rolled up to the top right, one brow raised, a small "o" mouth and a big "?"), plays the question sound and rocks servo 1 like the robot is scratching its head:
+
+- Servo 1 moves to 90° at 100 deg/s, then back to 110° at 30 deg/s, pauses 1 s, and repeats.
+- Servo 3 and the head go to their default angles.
+
+`arms question` and `face question` start only one part, and `arms off` ends the pose. The values are `QUESTION_*` in `m5dail_proj.ino`.
 
 ## The robot (3D model)
 
@@ -106,7 +130,7 @@ The Dial starts on the bot "thinking" face.
 - **Tap the screen**: next expression.
 - **Hold the button**: go to servo mode.
 
-Expressions: happy, sad, surprised, angry, excited, confused, thinking, winking, love, sleeping. In the thinking face the eyes look down and read lines of text, like reading a laptop screen.
+Expressions: happy, sad, surprised, angry, excited, confused, thinking, winking, love, sleeping, done, question. In the thinking face the eyes look down and read lines of text, like reading a laptop screen.
 
 ### Servo mode
 
@@ -140,6 +164,11 @@ python3 serial_monitor.py
 | `status` | Print current state, encoder value and last RFID UID |
 | `servo <1-3> <0-180> [deg/s]` | Set a servo angle. With a speed it moves there smoothly, without it jumps. |
 | `arms thinking [deg/s] [min s] [max s]` | Start the typing arms (see below). Defaults: 100 deg/s, pause 0.1–1 s. One pause value = fixed pause. |
+| `thinking [deg/s] [min s] [max s]` | Thinking face + typing arms |
+| `done` | Done face, done sound and done arm pose |
+| `question` | Question face, question sound and question arm pose |
+| `sleep` | Eyes-style sleeping face, arms back to their default angles |
+| `arms done`, `arms question` | Only the arm pose |
 | `arms off` | Finish the current keystroke, then return the arms to their default angles |
 | `face [bot\|eyes] <name\|cycle\|off>` | Show an expression. `face` alone lists them. |
 | `sound <name\|stop\|vol N>` | Play a sound. `sound typing [seconds] [speed]` plays keyboard clicks. `sound` alone lists them. |
