@@ -1,4 +1,11 @@
-# M5Dial Project
+# M5Dial Little Engineer
+
+A small 3D-printed desk robot that sits at its own desk and "works" on a laptop. Its head is an [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial), whose round screen shows an animated face. Three micro servos move the two arms and turn the head. While the robot "thinks", its eyes read the laptop screen and its arms type on the keyboard.
+
+The robot is a remix of [Tiny Engineer](https://github.com/jamro/tiny-engineer) by jamro, redesigned for GH-S37D servos, an M5Dial head and a desk with the servo board built in. The project has two parts:
+
+- **Firmware** (this folder): runs on the M5Dial and drives the face, sounds and servos.
+- **3D models** ([`3d_models/`](3d_models/)): OpenSCAD sources and printable STLs for the robot, its desk and the laptop.
 
 Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-S3, round 240×240 display, rotary encoder, touch, RFID). It does these things:
 
@@ -31,6 +38,23 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 - All moves ease in and out to keep the servos quiet.
 
 The angles and timings are at the top of the arm code in `m5dail_proj.ino` (`ARM_SWINGS`, `ARM_LIFT_*`).
+
+## The robot (3D model)
+
+<p align="center"><img src="3d_models/renders/RobotScene_front.png" width="320" alt="Render of the robot at its desk with the laptop"></p>
+
+All parts are designed in OpenSCAD and print without supports, except the arms' hands. The STLs are in [`3d_models/parts/gh-s37d/stl/`](3d_models/parts/gh-s37d/stl/).
+
+| Part | What it is |
+|---|---|
+| `HeadM5Dial` | Boxy head that holds the M5Dial as its face. It sits directly on the neck servo, which turns it left and right. |
+| `Torso` | Body with pockets for the three servos: one per arm, and the neck in the middle. |
+| `ArmLeft`, `ArmRight` | One-piece arms with robot claws, long enough to reach the laptop keys. They press onto the arm servos' shafts. |
+| `DeskBox`, `DeskBase` | Closed desk the torso plugs into. The PCA9685 servo board sits inside, and the cables leave through a slot in the back. |
+| `Laptop` | Open laptop that clips into the desk top in front of the robot. |
+| `HeadSocketTest` | Small test print to find the best shaft socket size for your servos. |
+
+Print settings, assembly steps and how to change the sizes are in [`3d_models/README.md`](3d_models/README.md).
 
 ## Hardware
 
@@ -137,4 +161,4 @@ python3 serial_monitor.py
 | `serial_monitor.py` | Two-way serial terminal |
 | `circular_maze.py` | Desktop Python prototype of the maze (matplotlib). Arrow keys pick a direction, space moves. |
 | `circular_maze.png` | Screenshot of the prototype |
-| `3d_models/` | Tiny Engineer robot CAD, set up for GH-S37D servos ([details](3d_models/README.md)) |
+| `3d_models/` | Robot, desk and laptop: OpenSCAD sources, STLs and renders ([details](3d_models/README.md)) |
