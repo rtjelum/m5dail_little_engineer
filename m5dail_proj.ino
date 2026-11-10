@@ -9,7 +9,7 @@ constexpr int      SERVO_MIN_US = 500;       // pulse at 0 deg
 constexpr int      SERVO_MAX_US = 2500;      // pulse at 180 deg
 constexpr int      NUM_SERVOS   = 3;         // servo N = PCA9685 channel N-1
 bool pcaOk = false;
-constexpr int SERVO_DEFAULT_DEG[NUM_SERVOS] = {40, 100, 130};   // power-on / "reset" angle per servo
+constexpr int SERVO_DEFAULT_DEG[NUM_SERVOS] = {125, 90, 50};   // power-on / "reset" angle per servo
 int  servoPos[NUM_SERVOS];                   // dial position 0..100 per servo (set from defaults in setup)
 int  activeServo = 0;
 
@@ -18,6 +18,17 @@ int  activeServo = 0;
 static void pcaWrite(uint8_t reg, const uint8_t* d, size_t n) { Wire.beginTransmission(PCA_ADDR); Wire.write(reg); Wire.write(d, n); uint8_t e = Wire.endTransmission(); if (e) Serial.printf("[pca9685] write reg %02x failed: %d\n", reg, e); }
 static void pcaWrite8(uint8_t reg, uint8_t v) { pcaWrite(reg, &v, 1); }
 static uint8_t pcaRead8(uint8_t reg) { Wire.beginTransmission(PCA_ADDR); Wire.write(reg); if (Wire.endTransmission() != 0) return 0xEE; Wire.requestFrom((int)PCA_ADDR, 1); return Wire.available() ? Wire.read() : 0xEE; }
+
+int pcaFreq = 50;   // servo PWM frequency in Hz ("pwm <Hz>" serial command). Higher = finer pulse steps.
+// PRESCALE can only be written while the chip sleeps. Internal oscillator ~25 MHz.
+static void pcaWriteFreq(int hz) {
+    int pre = constrain((int)lroundf(25000000.0f / (4096.0f * hz)) - 1, 3, 255);
+    pcaWrite8(0x00, 0x10);  // MODE1: sleep
+    pcaWrite8(0xFE, pre);   // PRESCALE
+    pcaWrite8(0x00, 0x20);  // wake, auto-increment
+    delay(1);
+    pcaWrite8(0x00, 0xA0);  // restart
+}
 
 bool pcaBegin() {
     // Accept either wire order on Port A (SDA/SCL swapped works too).
@@ -29,12 +40,7 @@ bool pcaBegin() {
         if (found) Serial.printf("[pca9685] SDA=G%d SCL=G%d\n", order[k][0], order[k][1]);
     }
     if (!found) return false;
-    // 50 Hz: prescale = 25MHz / (4096 * 50) - 1 = 121
-    pcaWrite8(0x00, 0x10);  // MODE1: sleep
-    pcaWrite8(0xFE, 121);   // PRESCALE
-    pcaWrite8(0x00, 0x20);  // wake, auto-increment
-    delay(1);
-    pcaWrite8(0x00, 0xA0);  // restart
+    pcaWriteFreq(pcaFreq);  // 50 Hz -> prescale 121
     pcaWrite8(0x01, 0x04);  // MODE2: totem-pole
     return true;
 }
@@ -42,12 +48,16 @@ bool pcaBegin() {
 // Current angle, target angle and speed (deg/s, 0 = jump) per servo; servoUpdate() moves toward the target.
 float servoCur[NUM_SERVOS], servoTarget[NUM_SERVOS], servoSpeed[NUM_SERVOS];
 unsigned long servoLastUpdate = 0;
+bool armsThinking = false;   // "arms thinking [deg/s]" serial command: arm typing swing on/off
+float armsSpeed = 50;        // swing speed in deg/s
+float armsPauseMin = 0.1f, armsPauseMax = 1.0f;   // random pause range in seconds between arm moves
+bool  armsCancel = false;    // set by "reset": drop any arm motion in progress
 
 static void servoWriteDeg(int ch, float deg) {
     if (!pcaOk) return;
     deg = constrain(deg, 0.0f, 180.0f);
-    int us = SERVO_MIN_US + (int)(deg * (SERVO_MAX_US - SERVO_MIN_US) / 180.0f);
-    uint16_t off = (uint32_t)us * 4096 / 20000;               // 20 ms period
+    float us = SERVO_MIN_US + deg * (SERVO_MAX_US - SERVO_MIN_US) / 180.0f;
+    uint16_t off = (uint16_t)min(4095L, lroundf(us * 4096 * pcaFreq / 1e6f));   // fraction of the PWM period
     uint8_t d[4] = {0, 0, (uint8_t)(off & 0xFF), (uint8_t)(off >> 8)};
     pcaWrite(0x06 + 4 * ch, d, 4);
 }
@@ -73,6 +83,14 @@ void servoUpdate() {
         servoCur[ch] = fabsf(diff) <= step ? servoTarget[ch] : servoCur[ch] + (diff > 0 ? step : -step);
         servoWriteDeg(ch, servoCur[ch]);
     }
+}
+
+// Change the PWM frequency and re-send every servo's current angle at the new rate.
+void pcaSetFreq(int hz) {
+    pcaFreq = hz;
+    if (!pcaOk) return;
+    pcaWriteFreq(hz);
+    for (int ch = 0; ch < NUM_SERVOS; ch++) servoWriteDeg(ch, servoCur[ch]);
 }
 
 void servoWriteAngle(int ch, int deg) {   // immediate move (dial, reset, startup)
@@ -610,7 +628,7 @@ void handleSerial() {
         if (c == '\n') {
             serialBuf.trim(); if (serialBuf.length() == 0 || serialBuf[0] == '[') { serialBuf = ""; return; }   // skip blanks and echoed replies
             if (serialBuf.equalsIgnoreCase("status")) { xSemaphoreTake(dataMutex, portMAX_DELAY); long enc = currentEncoderPos; String rfi = last_rfid; xSemaphoreGive(dataMutex); Serial.printf("[status] state=%d enc=%ld rfid=%s\n", (int)gState, enc, rfi.length() ? rfi.c_str() : "(none)"); }
-            else if (serialBuf.equalsIgnoreCase("help")) Serial.println("[help] status, reset, servo <1-3> <0-180> [deg/s], face [bot|eyes] <name|cycle|off>, sound <name|stop|vol N>, rotate <0-3>, <text>");
+            else if (serialBuf.equalsIgnoreCase("help")) Serial.println("[help] status, reset, servo <1-3> <0-180> [deg/s], arms thinking [deg/s]|off, pwm <Hz>, face [bot|eyes] <name|cycle|off>, sound <name|stop|vol N>, rotate <0-3>, <text>");
             else if (serialBuf.equalsIgnoreCase("scan")) { int pins[2][2] = {{13, 15}, {15, 13}}; for (int k = 0; k < 2; k++) { Wire.end(); pinMode(13, INPUT); pinMode(15, INPUT); delay(2); Serial.printf("[scan] idle G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); if (k == 0 && !digitalRead(13)) { pinMode(15, OUTPUT_OPEN_DRAIN); for (int c = 0; c < 18; c++) { digitalWrite(15, c & 1); delayMicroseconds(10); } pinMode(15, INPUT); delay(1); Serial.printf("[scan] after 9 clocks G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); pinMode(13, INPUT_PULLUP); delay(1); Serial.printf("[scan] G13 with pullup=%d\n", digitalRead(13)); pinMode(13, INPUT); } Wire.begin(pins[k][0], pins[k][1], 100000); Serial.printf("[scan] SDA=G%d SCL=G%d:", pins[k][0], pins[k][1]); for (int ad = 1; ad < 127; ad++) { Wire.beginTransmission(ad); if (Wire.endTransmission() == 0) Serial.printf(" 0x%02x", ad); } Serial.println(); } Wire.end(); pcaOk = pcaBegin(); Serial.printf("[scan] pcaOk=%d\n", pcaOk); }
             else if (serialBuf.equalsIgnoreCase("pca")) { Serial.printf("[pca] ok=%d MODE1=%02x MODE2=%02x PRESCALE=%d\n", pcaOk, pcaRead8(0x00), pcaRead8(0x01), pcaRead8(0xFE)); for (int ch = 0; ch < NUM_SERVOS; ch++) { uint8_t r[4]; for (int k = 0; k < 4; k++) r[k] = pcaRead8(0x06 + 4 * ch + k); Serial.printf("[pca] ch%d on=%u off=%u\n", ch, r[0] | (r[1] << 8), r[2] | (r[3] << 8)); } }
             else if (serialBuf.startsWith("servo ")) {   // servo <n> <deg> [deg/s]
@@ -627,7 +645,27 @@ void handleSerial() {
             else if (serialBuf.equalsIgnoreCase("face") || serialBuf.startsWith("face ")) handleFaceCommand(serialBuf.substring(4));
             else if (serialBuf.equalsIgnoreCase("sound") || serialBuf.startsWith("sound ")) handleSoundCommand(serialBuf.substring(5));
             else if (serialBuf.startsWith("rotate")) { int r = serialBuf.substring(6).toInt(); if (serialBuf.length() > 6) M5Dial.Display.setRotation(r & 3); Serial.printf("[rotate] %d\n", M5Dial.Display.getRotation()); }
-            else if (serialBuf.equalsIgnoreCase("reset")) { servosToDefault(); if (gState == GState::IDLE) selectServo(activeServo); }
+            else if (serialBuf.startsWith("pwm")) {   // pwm <Hz>: servo PWM frequency
+                String a = serialBuf.substring(3); a.trim();
+                int hz = a.toInt();
+                if (hz >= 40 && hz <= 330) { pcaSetFreq(hz); Serial.printf("[pwm] %d Hz (prescale %d)\n", hz, pcaRead8(0xFE)); }
+                else Serial.printf("[pwm] %d Hz now; usage: pwm <40-330>\n", pcaFreq);
+            }
+            else if (serialBuf.startsWith("arms")) {   // arms thinking [deg/s] | arms off
+                String a = serialBuf.substring(4); a.trim();
+                String lower = a; lower.toLowerCase();
+                if (lower == "thinking" || lower.startsWith("thinking ")) {
+                    float sp = 0, p1 = 0, p2 = 0;
+                    int got = sscanf(a.c_str() + 8, "%f %f %f", &sp, &p1, &p2);
+                    if (got >= 1) armsSpeed = constrain(sp, 1.0f, 500.0f);
+                    if (got == 2) armsPauseMin = armsPauseMax = constrain(p1, 0.0f, 10.0f);   // one value = fixed pause
+                    if (got >= 3) { armsPauseMin = constrain(min(p1, p2), 0.0f, 10.0f); armsPauseMax = constrain(max(p1, p2), 0.0f, 10.0f); }
+                    armsThinking = true; Serial.printf("[arms] thinking at %.0f deg/s, pause %.2f-%.2f s\n", armsSpeed, armsPauseMin, armsPauseMax);
+                }
+                else if (a.equalsIgnoreCase("off") || a.equalsIgnoreCase("stop")) { armsThinking = false; Serial.println("[arms] off"); }
+                else Serial.println("[arms] usage: arms thinking [deg/s] [min s] [max s] | arms off");
+            }
+            else if (serialBuf.equalsIgnoreCase("reset")) { armsThinking = false; armsCancel = true; servosToDefault(); if (gState == GState::IDLE) selectServo(activeServo); }
             else { char buf[81]; serialBuf.substring(0, 80).toCharArray(buf, sizeof(buf)); xQueueSend(msgQueue, buf, 0); }
             serialBuf = "";
         } else if (serialBuf.length() < 80) serialBuf += c;
@@ -644,8 +682,81 @@ void setup() {
     faceShow(F_THINKING, true);   // start on the bot "thinking" face; button press goes to the servo dial
 }
 
+// Arm "typing" animation while "arms thinking" is on. Each arm rests at `home` and types a keystroke by
+// pressing to `press` and coming back up. One keystroke at a time: a random arm types, then a random pause
+// (armsPauseMin..Max). Moves ease in and out (cosine curve) so the servo never starts or stops hard.
+// Servo 3 also lifts to 80 deg now and then (see ARM_LIFT). "arms off" lets the current keystroke finish, then both arms ease back to their default angles.
+// armsSpeed = average deg/s of a move.
+struct ArmSwing { int ch; float home, press; };
+const ArmSwing ARM_SWINGS[] = {{0, 120, 130}, {2, 50, 40}};   // {channel, home (key up), press (key down)}
+constexpr int NUM_ARM_SWINGS = sizeof(ARM_SWINGS) / sizeof(ARM_SWINGS[0]);
+constexpr unsigned long ARM_PRESS_HOLD_MS = 40;   // short hold at the bottom of a keystroke
+// Now and then while typing, servo 3 lifts to 80 deg at 30 deg/s, holds a moment, and goes back (other arm keeps typing).
+constexpr int   ARM_LIFT = 1;                       // index into ARM_SWINGS (servo 3)
+constexpr float ARM_LIFT_DEG = 80, ARM_LIFT_SPEED = 30;
+constexpr long  ARM_LIFT_EVERY_MS[2] = {6000, 15000}, ARM_LIFT_HOLD_MS[2] = {500, 1500};
+// thenHome: after reaching `to`, hold `holdMs`, then return home at `homeSpeed`.
+struct ArmTween { bool on; float from, to; unsigned long start, dur; bool thenHome; unsigned long holdMs; float homeSpeed; };
+ArmTween armTw[NUM_ARM_SWINGS];
+
+static void armTweenTo(int i, float to, unsigned long now, float speed, bool thenHome = false, unsigned long holdMs = 0) {
+    float from = servoCur[ARM_SWINGS[i].ch];
+    armTw[i] = {true, from, to, now, (unsigned long)max(1.0f, fabsf(to - from) / speed * 1000), thenHome, holdMs, speed};
+}
+
+static bool armsBusy() { for (auto& t : armTw) if (t.on) return true; return false; }
+
+void armsUpdate(bool active) {
+    enum { IDLE, TO_HOME, TYPING, FINISHING } static state = IDLE;
+    static unsigned long nextKeyAt = 0, nextLiftAt = 0, last = 0;
+    unsigned long now = millis();
+    if (armsCancel) { armsCancel = false; for (auto& t : armTw) t.on = false; state = IDLE; }
+    if (!pcaOk || now - last < 20) return;
+    last = now;
+
+    // Run the eased moves; a keystroke's press move chains into the return move.
+    for (int i = 0; i < NUM_ARM_SWINGS; i++) {
+        ArmTween& t = armTw[i];
+        if (!t.on) continue;
+        float k = min(1.0f, (now - t.start) / (float)t.dur);
+        servoMoveTo(ARM_SWINGS[i].ch, t.from + (t.to - t.from) * (0.5f - 0.5f * cosf(PI * k)), 0);
+        if (k < 1) continue;
+        t.on = false;
+        if (t.thenHome && now - (t.start + t.dur) >= t.holdMs) armTweenTo(i, ARM_SWINGS[i].home, now, t.homeSpeed);
+        else if (t.thenHome) t.on = true;   // still holding at the bottom
+    }
+
+    switch (state) {
+    case IDLE:
+        if (active) { for (int i = 0; i < NUM_ARM_SWINGS; i++) armTweenTo(i, ARM_SWINGS[i].home, now, armsSpeed); state = TO_HOME; }
+        break;
+    case TO_HOME:   // both arms move to their home (key-up) position first
+        if (!armsBusy()) { state = active ? TYPING : FINISHING; nextKeyAt = now; nextLiftAt = now + random(ARM_LIFT_EVERY_MS[0], ARM_LIFT_EVERY_MS[1]); }
+        break;
+    case TYPING:
+        if (!active) { state = FINISHING; break; }
+        if ((long)(now - nextLiftAt) >= 0 && !armTw[ARM_LIFT].on) {
+            armTweenTo(ARM_LIFT, ARM_LIFT_DEG, now, ARM_LIFT_SPEED, true, random(ARM_LIFT_HOLD_MS[0], ARM_LIFT_HOLD_MS[1]));
+            nextLiftAt = now + 2 * armTw[ARM_LIFT].dur + armTw[ARM_LIFT].holdMs + random(ARM_LIFT_EVERY_MS[0], ARM_LIFT_EVERY_MS[1]);
+        }
+        if ((long)(now - nextKeyAt) >= 0) {
+            int arm = random(NUM_ARM_SWINGS);
+            if (armTw[arm].on) arm = (arm + 1) % NUM_ARM_SWINGS;   // that arm is busy (lifted): use the other one
+            if (armTw[arm].on) break;                               // both busy: try again next frame
+            armTweenTo(arm, ARM_SWINGS[arm].press, now, armsSpeed, true, ARM_PRESS_HOLD_MS);
+            unsigned long keyMs = 2 * armTw[arm].dur + ARM_PRESS_HOLD_MS;
+            nextKeyAt = now + keyMs + random((long)(armsPauseMin * 1000), (long)(armsPauseMax * 1000) + 1);
+        }
+        break;
+    case FINISHING:   // wait for the keystroke to complete, then ease back to rest
+        if (active) { state = TYPING; break; }
+        if (!armsBusy()) { for (int i = 0; i < NUM_ARM_SWINGS; i++) armTweenTo(i, SERVO_DEFAULT_DEG[ARM_SWINGS[i].ch], now, armsSpeed); state = IDLE; }
+        break;
+    }
+}
+
 void loop() {
-    M5Dial.update(); handleSerial(); soundUpdate(); servoUpdate(); if (gState == GState::FACE) { if (M5Dial.BtnA.wasHold()) faceExit(); } else if (M5Dial.BtnA.wasPressed()) mazeButtonPress();
+    M5Dial.update(); handleSerial(); soundUpdate(); armsUpdate(armsThinking); servoUpdate(); if (gState == GState::FACE) { if (M5Dial.BtnA.wasHold()) faceExit(); } else if (M5Dial.BtnA.wasPressed()) mazeButtonPress();
     if (gState == GState::IDLE) {
         char buf[81]; if (xQueueReceive(msgQueue, buf, 0) == pdTRUE) { drawMessage(String(buf)); M5Dial.Speaker.tone(2000, 100); }
         long encVal; while (xQueueReceive(encoderQueue, &encVal, 0) == pdTRUE) { servoPos[activeServo] = encVal; servoWriteAngle(activeServo, posToDeg(encVal)); drawEncoderGauge(encVal); }

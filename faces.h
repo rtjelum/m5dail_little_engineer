@@ -21,7 +21,7 @@ const FaceSpec FACES[FACE_COUNT] = {
   {"angry",     255, 50,  40, {{EYE_PUPIL, 0.05f,  -0.50f, -0.30f, -0.62f, -0.95f},   {EYE_PUPIL, 0.05f,  -0.50f, -0.30f, -0.62f, -0.95f}},   0.0f,  0.15f},
   {"excited",   255, 190, 40, {{EYE_PUPIL, NO_LID, NO_LID, -1.30f, -1.60f, -1.30f},   {EYE_PUPIL, NO_LID, NO_LID, -1.30f, -1.60f, -1.30f}},   0.0f,  0.0f},
   {"confused",  220, 80, 255, {{EYE_PUPIL, -0.40f, -0.40f, -0.75f, -0.90f, -0.85f},   {EYE_PUPIL, NO_LID, NO_LID, -1.45f, -1.75f, -1.40f}},   0.0f,  0.0f},
-  {"thinking",  40, 220, 220, {{EYE_PUPIL, NO_LID, NO_LID, -1.30f, -1.50f, -1.25f},   {EYE_PUPIL, NO_LID, NO_LID, -1.15f, -1.40f, -1.60f}},   0.45f, -0.45f},
+  {"thinking",  40, 220, 220, {{EYE_PUPIL, -0.55f, -0.50f, -1.30f, -1.50f, -1.25f},   {EYE_PUPIL, -0.55f, -0.50f, -1.15f, -1.40f, -1.60f}},   0.0f,  0.85f},
   {"winking",   210, 255, 40, {{EYE_PUPIL, NO_LID, NO_LID, -1.30f, -1.55f, -1.30f},   {EYE_PUPIL, NO_LID, NO_LID, -1.30f, -1.55f, -1.30f}},   0.0f,  0.0f},   // right eye winks (animated)
   {"love",      255, 60,  90, {{EYE_HEART_PUPIL, NO_LID, NO_LID, FACE_BROW_ARCH, 0.25f}, {EYE_HEART_PUPIL, NO_LID, NO_LID, FACE_BROW_ARCH, 0.25f}},           0.0f,  0.0f},
   {"sleeping",  60, 120, 255, {{EYE_CLOSED_DOWN, NO_LID, NO_LID, NO_BROW, 0, 0},      {EYE_CLOSED_DOWN, NO_LID, NO_LID, NO_BROW, 0, 0}},      0.0f,  0.0f},
@@ -165,7 +165,7 @@ const BotFace BOT_FACES[FACE_COUNT] = {
   /* angry     */ {{{BE_DOT, 1, 0.15f, -0.35f},           {BE_DOT, 1, 0.15f, -0.35f}},           {164, 50, -3, 0, 0, 2, 6, 0}},
   /* excited   */ {{{BE_CHEVRON, 1, NO_LID, NO_LID},      {BE_CHEVRON, 1, NO_LID, NO_LID}},      {176, 64, 16, 0, 0, 3, 9, 0}},
   /* confused  */ {{{BE_DOT, 0.95f, 0.0f, 0.0f},          {BE_RING, 1.05f, NO_LID, NO_LID}},     {150, 46, 0, 0, 0, 2, 6, 0.85f}},
-  /* thinking  */ {{{BE_DOT, 1, -0.50f, -0.50f},          {BE_DOT, 1.05f, NO_LID, NO_LID}},      {116, 40, 3, 0, 0, 2, 5, 0}},
+  /* thinking  */ {{{BE_DOT, 1, -0.50f, -0.50f},          {BE_DOT, 1.05f, -0.60f, -0.60f}},      {116, 40, 3, 0, 0, 2, 5, 0}},
   /* winking   */ {{{BE_DOT, 1, NO_LID, NO_LID},          {BE_DOT, 1, NO_LID, NO_LID}},          {150, 44, 10, 0, 6, 2, 6, 0}},
   /* love      */ {{{BE_HEART, 1, NO_LID, NO_LID},        {BE_HEART, 1, NO_LID, NO_LID}},        {150, 40, 12, 0, 0, 2, 7, 0}},
   /* sleeping  */ {{{BE_BAR, 1, NO_LID, NO_LID},          {BE_BAR, 1, NO_LID, NO_LID}},          {140, 42, 0, 0, 0, 2, 6, 0}},
@@ -324,7 +324,7 @@ void drawFace() {
     case F_ANGRY:     offX = random(-15, 16) / 10.0f; lift[0] = lift[1] = sinf(t * 14) * 0.03f; pupil = 0.8f; sacc = 0.2f; break;
     case F_EXCITED:   offY = -fabsf(sinf(t * 7)) * 6; pupil = 1.1f + 0.2f * sinf(t * 12); lift[0] = lift[1] = -fabsf(sinf(t * 7)) * 0.12f; break;
     case F_CONFUSED:  lx = fmodf(t, 2.4f) < 1.2f ? -0.5f : 0.4f; lift[1] = -0.1f * (0.5f + 0.5f * sinf(t * 4)); sacc = 0; break;
-    case F_THINKING:  { float rx, ry; faceReading(t, rx, ry); lx = rx * 0.55f; ly = -0.25f + ry * 0.45f; sacc = 0; } break;
+    case F_THINKING:  { float rx, ry; faceReading(t, rx, ry); lx = rx * 0.50f; ly = 0.75f + ry * 0.25f; sacc = 0; } break;
     case F_WINKING: {
         unsigned long ph = (now - faceWinkStart) % 2600;
         wink = ph < 90 ? ph / 90.0f : ph < 370 ? 1 : ph < 480 ? 1 - (ph - 370) / 110.0f : 0;
@@ -349,10 +349,10 @@ void drawFace() {
         BotMouth mouth = bf.m;
         float mouthX = 120;
         if (faceIdx == F_THINKING) {
-            // Pupils read lines of text just under the lid line.
+            // Pupils stay looking down, reading a laptop screen line by line.
             float rx, ry; faceReading(t, rx, ry);
             blx = 0.10f + rx * 0.50f;
-            bly = -0.12f + ry * 0.40f;
+            bly = 0.60f + ry * 0.25f;
             // "Hmm" mouth pushed to one side, slowly tilting.
             mouthX = 132;
             mouth.tilt = 3 * sinf(t * 0.9f);
