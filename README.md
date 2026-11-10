@@ -69,7 +69,7 @@ Print settings, assembly steps and how to change the sizes are in [`3d_models/RE
 
 ![PCA9685](pca9685.jpg)
 
-`m5dail.pdf` has the M5Dial reference sheet.
+See M5Stack's [M5Dial docs](https://docs.m5stack.com/en/core/M5Dial) for the pinout and specs.
 
 ## Building and flashing
 

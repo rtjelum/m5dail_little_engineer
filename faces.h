@@ -1,4 +1,4 @@
-// faces.h — animated robot-eye expressions (see faces.jpeg), drawn on the shared canvas.
+// faces.h — animated robot-eye expressions, drawn on the shared canvas.
 // Serial: "face [bot|eyes] <name>", "face cycle", "face off", "face" (list).
 // Included from m5dail_proj.ino after its globals (canvas, gState, isMoving, ...).
 #pragma once

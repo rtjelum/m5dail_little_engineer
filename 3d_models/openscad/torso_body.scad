@@ -1,4 +1,4 @@
-// Boxy torso, styled like improve_robot.jpg. Used by Torso.scad, the desk
+// Boxy robot-style torso. Used by Torso.scad, the desk
 // parts and RobotScene.scad.
 //
 // The top is the original Chest (with the GH-S37D tab slots from gh_s37d.scad),

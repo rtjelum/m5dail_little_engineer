@@ -20,7 +20,7 @@ They are made with OpenSCAD. The torso's servo block and the arms start from the
 `HeadM5Dial.stl` is a fixed head with an M5Stack Dial as its face. It replaces the original `Head`, `Hat` and `Neck`, and the head (pitch) servo. The head sits directly on the neck servo, with no neck or post in between, and turns left and right with it.
 
 - **Shape:** a 58 × 61 × 36 mm box with an open back. The Dial goes in from the back, screen first. Its 45 mm screen cap rests against the inside of the 4 mm front plate, and the screen shows through the 44.5 mm hole. Both orange rings sit inside the box with 1 mm of air at the sides and top (1.4 mm below), so they can turn. The servo's cross horn lies in an X-shaped pocket in a 1 mm square pad at the back of the floor, under the back half of the Dial. Its hub points down into a 5.5 mm hole through the floor, and the servo shaft comes up into it from below.
-- **Look:** all outside edges are rounded, with a seam groove 8 mm behind the face, like in `improve_robot.jpg`. The front edge starts at 45 degrees, so it still prints face down without supports.
+- **Look:** all outside edges are rounded, with a seam groove 8 mm behind the face, for a boxy robot look. The front edge starts at 45 degrees, so it still prints face down without supports.
 - **Print** face down, as exported, with no supports.
 - **Assembly:**
   1. Center the neck servo.
@@ -37,7 +37,7 @@ They are made with OpenSCAD. The torso's servo block and the arms start from the
 
 ## Torso
 
-`Torso.stl` replaces the original `Chest`, `Belly`, `BellyJoint`, `Bell`, `BottomCover` and `Chair`, with the boxy look from `improve_robot.jpg`. The robot now uses three servos: two arms and the neck.
+`Torso.stl` replaces the original `Chest`, `Belly`, `BellyJoint`, `Bell`, `BottomCover` and `Chair`, with a boxy robot look. The robot now uses three servos: two arms and the neck.
 
 - **Servos and joints unchanged:** the top 25.7 mm is the Chest exactly as before, with the GH-S37D tab slots. The arm servos lie in it with their shafts out the sides, the neck servo stands in the middle, and the arms and the M5Dial head fit as before.
 - **Lower body:** a hollow 32 mm box under the Chest, with a seam line, panel lines, vents and a speaker grille. Its front is set back 3 mm from the Chest's, with a 45-degree slope up to the Chest so there's no overhang to print, and the Chest's side scoops are kept, so the arms have as much room as before. With the longer upper arms (see below), the arms clear the body all the way down to the typing pose, 70 degrees below horizontal toward the front. Past about 72 degrees, the forearm touches the front corner of the lower body.
@@ -67,7 +67,7 @@ Two values in the scene are estimates: how high the head sits on the neck servo,
 - **Longer upper arm:** the upper arm is 12 mm longer than the original (32.6 mm instead of 20.6 mm from the shoulder hub to the end of the bar), so the claws reach the laptop keys. Change `upper_ext` in `openscad/arm_onepiece.scad`. Longer arms pass too close to the laptop screen (0.5 mm at 15 mm longer), and shorter ones need a steeper angle, where the forearm hits the torso.
 - **Elbow:** fixed, at the original angle. The upper arm sits where it sat in the forearm's tilted elbow pocket, with the forearm leaning in toward the body. The upper arm is turned 90° from the first version, after a test fit.
 - **Square elbow:** the round elbow ball is replaced by a flat-faced block, made as the hull of the end of the upper arm and the start of the forearm. Both bars run straight into it, and the forearm is the original, with nothing cut off (only its ball is removed). The block's underside is flat and level with the arm's flat print side. Change `elbow_grow` (how much bigger than the bars the block is) in `openscad/arm_onepiece.scad`.
-- **Robot hands:** the original human-style hands are replaced by simple robot claws, like in `improve_robot.jpg`: a square wrist collar, a block palm, two thick prongs with bent tips, and a thumb. Every part is at least 3 mm thick, with no small details, so they print easily. Sizes are at the top of the "Robot hand" section in `openscad/arm_onepiece.scad`.
+- **Robot hands:** the original human-style hands are replaced by simple robot claws: a square wrist collar, a block palm, two thick prongs with bent tips, and a thumb. Every part is at least 3 mm thick, with no small details, so they print easily. Sizes are at the top of the "Robot hand" section in `openscad/arm_onepiece.scad`.
 - **Shoulder socket:** the 3.4 mm hex that fit best in `HeadSocketTest`, with the same 2.4 mm depth, servo screw hole and screw head recess. It prints sideways, like in the test, so the fit should carry over.
 - **Print:** as exported. The upper arm lies flat with the hub on its side, and the forearm rises gently from the elbow. **Turn on supports for the hand** (tree supports work well). To make it lie flat, the hub is flattened on the bed side, and the elbow block's underside is level with it.
 - **Mount:** center the shoulder servo, press the socket onto the shaft with the arm in the pose you want, and fasten it with the servo screw from the outside.

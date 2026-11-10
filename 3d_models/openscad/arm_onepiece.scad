@@ -54,8 +54,8 @@ elbow_upper   = [14.5, 20.56];      // UpperArm frame: x range of the upper arm 
 elbow_fore    = [-0.3, 4.5];        // Forearm frame: x range of the forearm start
 
 // ── Robot hand ─────────────────────────────────────────────────────────────
-// The original human-style hand is replaced by a simple robot claw, like in
-// improve_robot.jpg, kept chunky so it prints easily: a square wrist collar,
+// The original human-style hand is replaced by a simple robot claw,
+// kept chunky so it prints easily: a square wrist collar,
 // a block palm, two thick prongs and a thumb, all at least 3 mm thick, with no
 // small details. Forearm frame: the bar runs along +x (y -2.5..2.5, z 0..5);
 // the hand starts at hand_x. The prongs bend toward +z, the palm side.

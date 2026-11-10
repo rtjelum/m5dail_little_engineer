@@ -24,7 +24,7 @@
 // and the neck servo shaft axis is at x = shaft_x, y = 0. The underside of
 // the floor is at z = 0.
 //
-// Outside (styled like improve_robot.jpg): all edges are rounded, with a seam
+// Outside (boxy robot style): all edges are rounded, with a seam
 // groove around the head behind the face. The front edge is rounded with a 45-degree
 // start, so it prints face down without supports.
 //
