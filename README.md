@@ -14,7 +14,8 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 - **One-word animations**: `thinking`, `done`, `question` and `sleep` set the face, sound and arm movement together.
 - **Servo control**: the dial drives three hobby servos through a PCA9685 board on Port A, with a round gauge showing the angle.
 - **RFID reader**: tap a card and its UID is shown on screen.
-- **Serial messages**: text sent over USB serial is shown as a message card.
+- **USB serial and Bluetooth LE commands**: the same command set over a USB cable or wirelessly, with `help` and `status` to find your way around.
+- **Serial messages**: text sent over USB serial or BLE is shown as a message card.
 - **Circular maze game**: a random maze of rings you play with the dial and button.
 
 <p align="center"><img src="m5_dail_robot.gif" width="260" alt="The robot typing on its laptop with the thinking face"></p>
@@ -149,19 +150,34 @@ You start in the center and need to reach the exit (marked green) on the outer r
 - **Press the button**: move. The player keeps following the corridor until it reaches a junction, a dead end, or another ring.
 - After escaping, press the button again to go back to servo mode.
 
-## Serial commands
+## Commands (USB serial and Bluetooth LE)
 
-Connect at 115200 baud, or run the included monitor:
+Commands ignore case (`Face Happy` = `face happy`). Type `help` for the list and `help <command>` for details and examples.
+
+Over USB, connect at 115200 baud, or run the included monitor:
 
 ```sh
 pip install pyserial
 python3 serial_monitor.py
 ```
 
+The same commands work over Bluetooth LE. The robot shows up as `M5Dial-Robot`. Service `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` has one characteristic, `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`, that supports:
+
+- **write**: send a command (each write is one command)
+- **notify**: get every line the robot prints, as it happens
+- **read**: get the full output of the last command (up to 512 bytes)
+
+Any generic BLE app works (nRF Connect, LightBlue). Output goes to USB serial and every connected BLE client. From a computer (type `?` to do a read):
+
+```sh
+pip install bleak
+python3 ble_monitor.py
+```
+
 | Command | What it does |
 |---|---|
-| `help` | List commands |
-| `status` | Print current state, encoder value and last RFID UID |
+| `help [command]` | List commands, or show details and examples for one command |
+| `status` | Mode and face, servo angles, arms, sound, BLE clients, RFID, uptime and build |
 | `servo <1-3> <0-180> [deg/s]` | Set a servo angle. With a speed it moves there smoothly, without it jumps. |
 | `arms thinking [deg/s] [min s] [max s]` | Start the typing arms (see below). Defaults: 100 deg/s, pause 0.1–1 s. One pause value = fixed pause. |
 | `thinking [deg/s] [min s] [max s]` | Thinking face + typing arms |
@@ -189,6 +205,7 @@ python3 serial_monitor.py
 | `face.sh` | Send one serial command from the terminal |
 | `Makefile` | Build, flash and verify |
 | `serial_monitor.py` | Two-way serial terminal |
+| `ble_monitor.py` | Two-way Bluetooth LE terminal |
 | `circular_maze.py` | Desktop Python prototype of the maze (matplotlib). Arrow keys pick a direction, space moves. |
 | `circular_maze.png` | Screenshot of the prototype |
 | `3d_models/` | Robot, desk and laptop: OpenSCAD sources, STLs and renders ([details](3d_models/README.md)) |

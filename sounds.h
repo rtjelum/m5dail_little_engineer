@@ -112,19 +112,19 @@ void soundUpdate() {
 }
 
 static void soundListNames() {
-    Serial.print("[sound] names:");
-    for (int i = 0; i < SOUND_COUNT; i++) Serial.printf(" %s", SOUNDS[i].name);
-    Serial.println(" typing [seconds] [speed|slow|fast]  (also: stop, vol <0-255>)");
+    Con.print("[sound] names:");
+    for (int i = 0; i < SOUND_COUNT; i++) Con.printf(" %s", SOUNDS[i].name);
+    Con.println(" typing [seconds] [speed|slow|fast]  (also: stop, vol <0-255>)");
 }
 
 void handleSoundCommand(String arg) {
     arg.trim();
     if (arg.length() == 0) { soundListNames(); return; }
-    if (arg.equalsIgnoreCase("stop")) { soundStop(); Serial.println("[sound] stop"); return; }
+    if (arg.equalsIgnoreCase("stop")) { soundStop(); Con.println("[sound] stop"); return; }
     if (arg.startsWith("vol")) {
         int v = arg.substring(3).toInt();
         if (arg.substring(3).length()) M5Dial.Speaker.setVolume(constrain(v, 0, 255));
-        Serial.printf("[sound] volume %d\n", M5Dial.Speaker.getVolume());
+        Con.printf("[sound] volume %d\n", M5Dial.Speaker.getVolume());
         return;
     }
     if (arg.equalsIgnoreCase("typing") || arg.startsWith("typing ")) {
@@ -144,11 +144,11 @@ void handleSoundCommand(String arg) {
             else if (tok.toFloat() > 0) { if (!haveSec) { sec = tok.toFloat(); haveSec = true; } else speed = tok.toFloat(); }
         }
         typingStart(sec, speed);
-        Serial.printf("[sound] typing %.1fs speed %.2f\n", constrain(sec, 0.5f, 120.0f), typingSpeed);
+        Con.printf("[sound] typing %.1fs speed %.2f\n", constrain(sec, 0.5f, 120.0f), typingSpeed);
         return;
     }
     for (int i = 0; i < SOUND_COUNT; i++)
-        if (arg.equalsIgnoreCase(SOUNDS[i].name)) { soundPlay(i); Serial.printf("[sound] %s\n", SOUNDS[i].name); return; }
-    Serial.printf("[sound] unknown '%s'\n", arg.c_str());
+        if (arg.equalsIgnoreCase(SOUNDS[i].name)) { soundPlay(i); Con.printf("[sound] %s\n", SOUNDS[i].name); return; }
+    Con.printf("[sound] unknown '%s'\n", arg.c_str());
     soundListNames();
 }

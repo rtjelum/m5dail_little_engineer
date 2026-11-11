@@ -529,9 +529,9 @@ void faceUpdate() {
 }
 
 static void faceListNames() {
-    Serial.print("[face] names:");
-    for (int i = 0; i < FACE_COUNT; i++) Serial.printf(" %s", FACES[i].name);
-    Serial.println("  (also: cycle, off; prefix \"bot\" for the teeth style, \"eyes\" for the big-eye style)");
+    Con.print("[face] names:");
+    for (int i = 0; i < FACE_COUNT; i++) Con.printf(" %s", FACES[i].name);
+    Con.println("  (also: cycle, off; prefix \"bot\" for the teeth style, \"eyes\" for the big-eye style)");
 }
 
 void handleFaceCommand(String arg) {
@@ -542,11 +542,11 @@ void handleFaceCommand(String arg) {
     if (lower == "bot" || lower.startsWith("bot "))   { bot = true;  arg = arg.substring(3); arg.trim(); if (!arg.length()) arg = FACES[gState == GState::FACE ? faceIdx : 0].name; }
     else if (lower == "eyes" || lower.startsWith("eyes ")) { bot = false; arg = arg.substring(4); arg.trim(); if (!arg.length()) arg = FACES[gState == GState::FACE ? faceIdx : 0].name; }
     if (arg.length() == 0) { faceListNames(); return; }
-    if (arg.equalsIgnoreCase("off")) { if (gState == GState::FACE) faceExit(); Serial.println("[face] off"); return; }
-    if (arg.equalsIgnoreCase("cycle")) { faceCycling = true; faceCycleAt = millis() + FACE_CYCLE_MS; faceShow(gState == GState::FACE ? (faceIdx + 1) % FACE_COUNT : 0, bot); Serial.println("[face] cycling"); return; }
+    if (arg.equalsIgnoreCase("off")) { if (gState == GState::FACE) faceExit(); Con.println("[face] off"); return; }
+    if (arg.equalsIgnoreCase("cycle")) { faceCycling = true; faceCycleAt = millis() + FACE_CYCLE_MS; faceShow(gState == GState::FACE ? (faceIdx + 1) % FACE_COUNT : 0, bot); Con.println("[face] cycling"); return; }
     int idx = faceFind(arg);
-    if (idx < 0) { Serial.printf("[face] unknown '%s'\n", arg.c_str()); faceListNames(); return; }
+    if (idx < 0) { Con.printf("[face] unknown '%s'\n", arg.c_str()); faceListNames(); return; }
     faceCycling = false;
     faceShow(idx, bot);
-    Serial.printf("[face] %s%s\n", bot ? "bot " : "", FACES[idx].name);
+    Con.printf("[face] %s%s\n", bot ? "bot " : "", FACES[idx].name);
 }

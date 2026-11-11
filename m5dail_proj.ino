@@ -1,6 +1,83 @@
 #include "M5Dial.h"
 #include <vector>
 #include <deque>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
+
+// ── BLE serial: one characteristic for commands and replies ─────────────
+// Takes the same commands as USB serial, through a single characteristic that supports:
+//   write  - send a command (each write is one command; a newline is added if missing)
+//   notify - subscribe to get every line the robot prints, as it happens
+//   read   - get the full output of the last command (up to BLE_REPLY_MAX bytes)
+// Works with any generic BLE app (nRF Connect, LightBlue) or ble_monitor.py.
+// Everything printed with Con goes to USB serial and, while a client is connected, to BLE too.
+constexpr const char* BLE_NAME = "M5Dial-Robot";
+#define BLE_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define BLE_CMD_UUID     "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"   // write + read + notify
+constexpr size_t BLE_REPLY_MAX = 512;   // longest value a BLE read can return
+BLEServer* bleServer = nullptr;
+BLECharacteristic* bleCmd = nullptr;
+volatile int bleClients = 0;   // several clients can be connected at once; replies go to all of them
+char blePeer[18] = "";         // address of the last client that connected, shown by "status"
+QueueHandle_t bleRxQueue;   // bytes from the client, handled in loop()
+
+class Console : public Print {
+    uint8_t buf[200]; size_t len = 0;                       // line waiting to be notified
+    char reply[BLE_REPLY_MAX]; size_t replyLen = 0;         // output since the last command, for reads
+    portMUX_TYPE replyLock = portMUX_INITIALIZER_UNLOCKED;  // reads come from the BLE task
+public:
+    size_t write(uint8_t c) override { return write(&c, 1); }
+    size_t write(const uint8_t* d, size_t n) override {
+        Serial.write(d, n);
+        portENTER_CRITICAL(&replyLock); size_t k = min(n, BLE_REPLY_MAX - replyLen); memcpy(reply + replyLen, d, k); replyLen += k; portEXIT_CRITICAL(&replyLock);
+        if (bleClients > 0) for (size_t i = 0; i < n; i++) { buf[len++] = d[i]; if (d[i] == '\n' || len == sizeof(buf)) bleFlush(); }
+        return n;
+    }
+    void newReply() { portENTER_CRITICAL(&replyLock); replyLen = 0; portEXIT_CRITICAL(&replyLock); }   // called when a command starts
+    void loadReply(BLECharacteristic* c) {   // put the last command's output in the characteristic for a read
+        static char copy[BLE_REPLY_MAX]; portENTER_CRITICAL(&replyLock); size_t n = replyLen; memcpy(copy, reply, n); portEXIT_CRITICAL(&replyLock);
+        c->setValue((uint8_t*)copy, n);
+    }
+    void bleFlush() {   // notify buffered text, split to fit the connection's MTU
+        if (!len) return;
+        if (bleClients > 0 && bleCmd) {
+            size_t chunk = bleClients == 1 ? bleServer->getPeerMTU(bleServer->getConnId()) - 3 : 20; if (chunk < 20 || chunk > 180) chunk = 20;
+            for (size_t o = 0; o < len; o += chunk) { bleCmd->setValue(buf + o, min(chunk, len - o)); bleCmd->notify(); }
+        }
+        len = 0;
+    }
+} Con;
+
+struct BleServerCb : BLEServerCallbacks {
+    void onConnect(BLEServer*, ble_gap_conn_desc* d) override {   // this core uses NimBLE
+        const uint8_t* a = d->peer_ota_addr.val; snprintf(blePeer, sizeof(blePeer), "%02x:%02x:%02x:%02x:%02x:%02x", a[5], a[4], a[3], a[2], a[1], a[0]);
+        bleClients++; BLEDevice::startAdvertising();   // stay visible so more clients can join
+    }
+    void onDisconnect(BLEServer*) override { if (bleClients > 0) bleClients--; BLEDevice::startAdvertising(); }
+};
+struct BleCmdCb : BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic* c) override {
+        String v = c->getValue(); if (!v.length()) return;
+        for (size_t i = 0; i < v.length(); i++) { char ch = v[i]; xQueueSend(bleRxQueue, &ch, 0); }
+        if (v[v.length() - 1] != '\n' && v[v.length() - 1] != '\r') { char nl = '\n'; xQueueSend(bleRxQueue, &nl, 0); }
+    }
+    void onRead(BLECharacteristic* c) override { Con.loadReply(c); }
+};
+
+void bleBegin() {
+    bleRxQueue = xQueueCreate(256, 1);
+    BLEDevice::init(BLE_NAME);
+    bleServer = BLEDevice::createServer(); bleServer->setCallbacks(new BleServerCb());
+    BLEService* svc = bleServer->createService(BLE_SERVICE_UUID);
+    bleCmd = svc->createCharacteristic(BLE_CMD_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR |
+                                                     BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+    bleCmd->addDescriptor(new BLE2902()); bleCmd->setCallbacks(new BleCmdCb());
+    svc->start();
+    BLEAdvertising* adv = BLEDevice::getAdvertising(); adv->addServiceUUID(BLE_SERVICE_UUID); adv->setScanResponse(true);
+    BLEDevice::startAdvertising();
+    Con.printf("[ble] advertising as \"%s\"\n", BLE_NAME);
+}
 
 // ── PCA9685 servo driver on Port A (Wire: SDA=G13, SCL=G15) ─────────────
 constexpr uint8_t  PCA_ADDR     = 0x40;      // default address, A0-A5 open
@@ -15,7 +92,7 @@ int  activeServo = 0;
 
 #include <Wire.h>
 // Port A uses I2C port 0 (Wire). Port 1 belongs to M5Unified In_I2C (RFID, RTC).
-static void pcaWrite(uint8_t reg, const uint8_t* d, size_t n) { Wire.beginTransmission(PCA_ADDR); Wire.write(reg); Wire.write(d, n); uint8_t e = Wire.endTransmission(); if (e) Serial.printf("[pca9685] write reg %02x failed: %d\n", reg, e); }
+static void pcaWrite(uint8_t reg, const uint8_t* d, size_t n) { Wire.beginTransmission(PCA_ADDR); Wire.write(reg); Wire.write(d, n); uint8_t e = Wire.endTransmission(); if (e) Con.printf("[pca9685] write reg %02x failed: %d\n", reg, e); }
 static void pcaWrite8(uint8_t reg, uint8_t v) { pcaWrite(reg, &v, 1); }
 static uint8_t pcaRead8(uint8_t reg) { Wire.beginTransmission(PCA_ADDR); Wire.write(reg); if (Wire.endTransmission() != 0) return 0xEE; Wire.requestFrom((int)PCA_ADDR, 1); return Wire.available() ? Wire.read() : 0xEE; }
 
@@ -37,7 +114,7 @@ bool pcaBegin() {
     for (int k = 0; k < 2 && !found; k++) {
         Wire.end(); Wire.begin(order[k][0], order[k][1], PCA_I2C_FREQ);
         Wire.beginTransmission(PCA_ADDR); found = (Wire.endTransmission() == 0);
-        if (found) Serial.printf("[pca9685] SDA=G%d SCL=G%d\n", order[k][0], order[k][1]);
+        if (found) Con.printf("[pca9685] SDA=G%d SCL=G%d\n", order[k][0], order[k][1]);
     }
     if (!found) return false;
     pcaWriteFreq(pcaFreq);  // 50 Hz -> prescale 121
@@ -359,7 +436,7 @@ static void mazeGenerate() {
     pendingEncoderReset = true;
     long ev; while (xQueueReceive(encoderQueue, &ev, 0) == pdTRUE) {}
 
-    Serial.printf("[maze] generated, exit sector %d, solution %d cells\n", mazeExitSector, maxD);
+    Con.printf("[maze] generated, exit sector %d, solution %d cells\n", mazeExitSector, maxD);
 }
 
 void mazeStep() {
@@ -631,19 +708,90 @@ static void armsThinkingStart(const char* args, const char* tag) {
     if (got == 2) armsPauseMin = armsPauseMax = constrain(p1, 0.0f, 10.0f);
     if (got >= 3) { armsPauseMin = constrain(min(p1, p2), 0.0f, 10.0f); armsPauseMax = constrain(max(p1, p2), 0.0f, 10.0f); }
     armsThinking = true; armsPose = POSE_NONE;
-    Serial.printf("[%s] thinking at %.0f deg/s, pause %.2f-%.2f s\n", tag, armsSpeed, armsPauseMin, armsPauseMax);
+    Con.printf("[%s] thinking at %.0f deg/s, pause %.2f-%.2f s\n", tag, armsSpeed, armsPauseMin, armsPauseMax);
 }
 
-static String serialBuf = "";
-void handleSerial() {
-    while (Serial.available()) {
-        char c = Serial.read(); if (c == '\r') continue;
-        if (c == '\n') {
+// "help": a short list that fits in one BLE read (512 bytes). "help <command>": details and examples.
+struct HelpTopic { const char* name; const char* text; };
+static const HelpTopic HELP_TOPICS[] = {
+    {"status",   "status - mode, face, servo angles, arms, sound, BLE and build info"},
+    {"thinking", "thinking [deg/s] [min s] [max s] - thinking face + typing arms\n"
+                 "  deg/s: arm speed (default 100). min/max s: random pause between keystrokes (default 0.1-1)\n"
+                 "  e.g. thinking | thinking 150 | thinking 80 0.2 2"},
+    {"done",     "done - done face, done sound and a 'finished' arm wave. Stop the arms with: arms off"},
+    {"question", "question - question face, question sound and a 'hand up' arm pose. Stop with: arms off"},
+    {"sleep",    "sleep - sleeping eyes, arms back to rest"},
+    {"face",     "face [bot|eyes] <name|cycle|off> - show a face\n"
+                 "  bot = teeth style, eyes = big-eye style. 'face' alone lists the names. Hold the button to leave.\n"
+                 "  e.g. face happy | face bot thinking | face cycle | face off"},
+    {"sound",    "sound <name|stop|vol N> - play a sound. 'sound' alone lists the names\n"
+                 "  sound typing [seconds] [speed|slow|fast|turbo] - keyboard clicks\n"
+                 "  e.g. sound done | sound typing 5 fast | sound vol 128"},
+    {"arms",     "arms thinking [deg/s] [min s] [max s] | arms done | arms question | arms off\n"
+                 "  only the arms, the face is left alone. 'arms off' finishes the keystroke, then rests"},
+    {"servo",    "servo <1-3> <0-180> [deg/s] - move a servo. Without speed it jumps, with speed it glides\n"
+                 "  1 and 3 = arms, 2 = head.  e.g. servo 2 90 | servo 1 120 40"},
+    {"reset",    "reset - stop the arms and move all servos to their default angles"},
+    {"rotate",   "rotate <0-3> - turn the screen in 90 degree steps. 'rotate' alone prints the current one"},
+    {"pwm",      "pwm <40-330> - servo PWM frequency in Hz (default 50, back to 50 at power-on)"},
+    {"pca",      "pca - dump the PCA9685 servo driver registers"},
+    {"scan",     "scan - debug Port A: line levels, I2C bus scan, re-init the servo driver"},
+};
+
+static void printHelp(String topic) {
+    topic.trim();
+    if (!topic.length()) {
+        Con.println("[help] Commands (any case). 'help <command>' for details:\n"
+                    "[help] status - what the robot is doing\n"
+                    "[help] thinking | done | question | sleep - moods: face, sound and arms\n"
+                    "[help] face <name> - show a face ('face' lists them)\n"
+                    "[help] sound <name> - play a sound ('sound' lists them)\n"
+                    "[help] arms thinking|done|question|off - arms only\n"
+                    "[help] servo <1-3> <deg> [deg/s] - move a servo\n"
+                    "[help] reset - arms off, servos to default\n"
+                    "[help] rotate, pwm, pca, scan - setup and debug\n"
+                    "[help] any other text - shown on screen");
+        return;
+    }
+    for (auto& t : HELP_TOPICS) if (topic == t.name) {
+        String txt = t.text; txt.replace("\n", "\n[help] "); Con.printf("[help] %s\n", txt.c_str()); return;
+    }
+    Con.printf("[help] no command '%s'. Type 'help' for the list\n", topic.c_str());
+}
+
+static void printStatus() {
+    xSemaphoreTake(dataMutex, portMAX_DELAY); String rfid = last_rfid; xSemaphoreGive(dataMutex);
+    unsigned long up = millis() / 1000;
+    static const char* const MODES[] = {"servo dial", "maze", "maze won", "face"};
+    if (gState == GState::FACE) Con.printf("[status] mode: face - %s%s%s\n", faceBot ? "bot " : "", FACES[faceIdx].name, faceCycling ? " (cycling)" : "");
+    else if (gState == GState::IDLE) Con.printf("[status] mode: servo dial - turning the dial moves servo %d, tap the screen for the next one\n", activeServo + 1);
+    else Con.printf("[status] mode: %s\n", MODES[(int)gState]);
+    Con.print("[status] servos:");
+    for (int i = 0; i < NUM_SERVOS; i++) {
+        Con.printf(" %d=%.0f", i + 1, servoCur[i]);
+        if (fabsf(servoTarget[i] - servoCur[i]) > 0.5f) Con.printf("->%.0f", servoTarget[i]);
+    }
+    Con.printf(" deg | driver %s, %d Hz\n", pcaOk ? "ok" : "NOT FOUND", pcaFreq);
+    if (armsThinking) Con.printf("[status] arms: typing at %.0f deg/s, pause %.2f-%.2f s\n", armsSpeed, armsPauseMin, armsPauseMax);
+    else Con.printf("[status] arms: %s\n", armsPose == POSE_DONE ? "done wave" : armsPose == POSE_QUESTION ? "question pose" : "resting");
+    Con.printf("[status] sound: %s, volume %d\n", typingUntil ? "typing" : soundCur ? soundCur->name : "quiet", M5Dial.Speaker.getVolume());
+    Con.printf("[status] ble: %d client%s%s%s | rfid: %s\n", bleClients, bleClients == 1 ? "" : "s", blePeer[0] ? ", last " : "", blePeer, rfid.length() ? rfid.c_str() : "none");
+    Con.printf("[status] up %luh%02lum%02lus | build %s #%08x\n", up / 3600, up / 60 % 60, up % 60, BUILD_DATE, BUILD_HASH);
+}
+
+// Command words, matched case-insensitively ("Face", "FACE" and "face" all work).
+static const char* const COMMANDS[] = {"status", "help", "scan", "pca", "servo", "face", "sound", "rotate", "pwm", "arms", "thinking", "sleep", "done", "question", "reset"};
+
+static void runCommand(String& serialBuf) {
+        {
             serialBuf.trim(); if (serialBuf.length() == 0 || serialBuf[0] == '[') { serialBuf = ""; return; }   // skip blanks and echoed replies
-            if (serialBuf.equalsIgnoreCase("status")) { xSemaphoreTake(dataMutex, portMAX_DELAY); long enc = currentEncoderPos; String rfi = last_rfid; xSemaphoreGive(dataMutex); Serial.printf("[status] state=%d enc=%ld rfid=%s\n", (int)gState, enc, rfi.length() ? rfi.c_str() : "(none)"); }
-            else if (serialBuf.equalsIgnoreCase("help")) Serial.println("[help] status, reset, servo <1-3> <0-180> [deg/s], arms thinking [deg/s]|done|question|off, thinking [deg/s] [min s] [max s], done, question, sleep, pwm <Hz>, face [bot|eyes] <name|cycle|off>, sound <name|stop|vol N>, rotate <0-3>, <text>");
-            else if (serialBuf.equalsIgnoreCase("scan")) { int pins[2][2] = {{13, 15}, {15, 13}}; for (int k = 0; k < 2; k++) { Wire.end(); pinMode(13, INPUT); pinMode(15, INPUT); delay(2); Serial.printf("[scan] idle G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); if (k == 0 && !digitalRead(13)) { pinMode(15, OUTPUT_OPEN_DRAIN); for (int c = 0; c < 18; c++) { digitalWrite(15, c & 1); delayMicroseconds(10); } pinMode(15, INPUT); delay(1); Serial.printf("[scan] after 9 clocks G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); pinMode(13, INPUT_PULLUP); delay(1); Serial.printf("[scan] G13 with pullup=%d\n", digitalRead(13)); pinMode(13, INPUT); } Wire.begin(pins[k][0], pins[k][1], 100000); Serial.printf("[scan] SDA=G%d SCL=G%d:", pins[k][0], pins[k][1]); for (int ad = 1; ad < 127; ad++) { Wire.beginTransmission(ad); if (Wire.endTransmission() == 0) Serial.printf(" 0x%02x", ad); } Serial.println(); } Wire.end(); pcaOk = pcaBegin(); Serial.printf("[scan] pcaOk=%d\n", pcaOk); }
-            else if (serialBuf.equalsIgnoreCase("pca")) { Serial.printf("[pca] ok=%d MODE1=%02x MODE2=%02x PRESCALE=%d\n", pcaOk, pcaRead8(0x00), pcaRead8(0x01), pcaRead8(0xFE)); for (int ch = 0; ch < NUM_SERVOS; ch++) { uint8_t r[4]; for (int k = 0; k < 4; k++) r[k] = pcaRead8(0x06 + 4 * ch + k); Serial.printf("[pca] ch%d on=%u off=%u\n", ch, r[0] | (r[1] << 8), r[2] | (r[3] << 8)); } }
+            { int sp = serialBuf.indexOf(' '); String w = sp < 0 ? serialBuf : serialBuf.substring(0, sp); w.toLowerCase();   // lowercase known commands; other text keeps its case
+              for (const char* k : COMMANDS) if (w == k) { serialBuf.toLowerCase(); break; } }
+            Con.newReply();   // a BLE read returns the output from here on
+            if (serialBuf == "status") printStatus();
+            else if (serialBuf == "help" || serialBuf.startsWith("help ")) printHelp(serialBuf.substring(4));
+            else if (serialBuf.equalsIgnoreCase("scan")) { int pins[2][2] = {{13, 15}, {15, 13}}; for (int k = 0; k < 2; k++) { Wire.end(); pinMode(13, INPUT); pinMode(15, INPUT); delay(2); Con.printf("[scan] idle G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); if (k == 0 && !digitalRead(13)) { pinMode(15, OUTPUT_OPEN_DRAIN); for (int c = 0; c < 18; c++) { digitalWrite(15, c & 1); delayMicroseconds(10); } pinMode(15, INPUT); delay(1); Con.printf("[scan] after 9 clocks G13=%d G15=%d\n", digitalRead(13), digitalRead(15)); pinMode(13, INPUT_PULLUP); delay(1); Con.printf("[scan] G13 with pullup=%d\n", digitalRead(13)); pinMode(13, INPUT); } Wire.begin(pins[k][0], pins[k][1], 100000); Con.printf("[scan] SDA=G%d SCL=G%d:", pins[k][0], pins[k][1]); for (int ad = 1; ad < 127; ad++) { Wire.beginTransmission(ad); if (Wire.endTransmission() == 0) Con.printf(" 0x%02x", ad); } Con.println(); } Wire.end(); pcaOk = pcaBegin(); Con.printf("[scan] pcaOk=%d\n", pcaOk); }
+            else if (serialBuf.equalsIgnoreCase("pca")) { Con.printf("[pca] ok=%d MODE1=%02x MODE2=%02x PRESCALE=%d\n", pcaOk, pcaRead8(0x00), pcaRead8(0x01), pcaRead8(0xFE)); for (int ch = 0; ch < NUM_SERVOS; ch++) { uint8_t r[4]; for (int k = 0; k < 4; k++) r[k] = pcaRead8(0x06 + 4 * ch + k); Con.printf("[pca] ch%d on=%u off=%u\n", ch, r[0] | (r[1] << 8), r[2] | (r[3] << 8)); } }
             else if (serialBuf.startsWith("servo ")) {   // servo <n> <deg> [deg/s]
                 int n = 0, deg = 0; float spd = 0;
                 int got = sscanf(serialBuf.c_str() + 6, "%d %d %f", &n, &deg, &spd);
@@ -652,26 +800,26 @@ void handleSerial() {
                     servoPos[n - 1] = deg * 100 / 180;
                     servoMoveTo(n - 1, deg, spd);
                     if (n - 1 == activeServo && gState == GState::IDLE) { long p = servoPos[n - 1]; xSemaphoreTake(dataMutex, portMAX_DELAY); currentEncoderPos = p; xSemaphoreGive(dataMutex); encoderResetValue = p; pendingEncoderReset = true; drawEncoderGauge(p); }
-                    if (spd > 0) Serial.printf("[servo] %d -> %d deg at %.0f deg/s\n", n, deg, spd); else Serial.printf("[servo] %d -> %d deg\n", n, deg);
-                } else Serial.printf("[servo] usage: servo <1-%d> <0-180> [deg/s]\n", NUM_SERVOS);
+                    if (spd > 0) Con.printf("[servo] %d -> %d deg at %.0f deg/s\n", n, deg, spd); else Con.printf("[servo] %d -> %d deg\n", n, deg);
+                } else Con.printf("[servo] usage: servo <1-%d> <0-180> [deg/s]\n", NUM_SERVOS);
             }
             else if (serialBuf.equalsIgnoreCase("face") || serialBuf.startsWith("face ")) handleFaceCommand(serialBuf.substring(4));
             else if (serialBuf.equalsIgnoreCase("sound") || serialBuf.startsWith("sound ")) handleSoundCommand(serialBuf.substring(5));
-            else if (serialBuf.startsWith("rotate")) { int r = serialBuf.substring(6).toInt(); if (serialBuf.length() > 6) M5Dial.Display.setRotation(r & 3); Serial.printf("[rotate] %d\n", M5Dial.Display.getRotation()); }
+            else if (serialBuf.startsWith("rotate")) { int r = serialBuf.substring(6).toInt(); if (serialBuf.length() > 6) M5Dial.Display.setRotation(r & 3); Con.printf("[rotate] %d\n", M5Dial.Display.getRotation()); }
             else if (serialBuf.startsWith("pwm")) {   // pwm <Hz>: servo PWM frequency
                 String a = serialBuf.substring(3); a.trim();
                 int hz = a.toInt();
-                if (hz >= 40 && hz <= 330) { pcaSetFreq(hz); Serial.printf("[pwm] %d Hz (prescale %d)\n", hz, pcaRead8(0xFE)); }
-                else Serial.printf("[pwm] %d Hz now; usage: pwm <40-330>\n", pcaFreq);
+                if (hz >= 40 && hz <= 330) { pcaSetFreq(hz); Con.printf("[pwm] %d Hz (prescale %d)\n", hz, pcaRead8(0xFE)); }
+                else Con.printf("[pwm] %d Hz now; usage: pwm <40-330>\n", pcaFreq);
             }
             else if (serialBuf.startsWith("arms")) {   // arms thinking [deg/s] | arms off
                 String a = serialBuf.substring(4); a.trim();
                 String lower = a; lower.toLowerCase();
                 if (lower == "thinking" || lower.startsWith("thinking ")) armsThinkingStart(a.c_str() + 8, "arms");
-                else if (a.equalsIgnoreCase("done"))     { armsThinking = false; armsPose = POSE_DONE;     Serial.println("[arms] done"); }
-                else if (a.equalsIgnoreCase("question")) { armsThinking = false; armsPose = POSE_QUESTION; Serial.println("[arms] question"); }
-                else if (a.equalsIgnoreCase("off") || a.equalsIgnoreCase("stop")) { armsThinking = false; armsPose = POSE_NONE; Serial.println("[arms] off"); }
-                else Serial.println("[arms] usage: arms thinking [deg/s] [min s] [max s] | arms done | arms question | arms off");
+                else if (a.equalsIgnoreCase("done"))     { armsThinking = false; armsPose = POSE_DONE;     Con.println("[arms] done"); }
+                else if (a.equalsIgnoreCase("question")) { armsThinking = false; armsPose = POSE_QUESTION; Con.println("[arms] question"); }
+                else if (a.equalsIgnoreCase("off") || a.equalsIgnoreCase("stop")) { armsThinking = false; armsPose = POSE_NONE; Con.println("[arms] off"); }
+                else Con.println("[arms] usage: arms thinking [deg/s] [min s] [max s] | arms done | arms question | arms off");
             }
             else if (serialBuf.equalsIgnoreCase("thinking") || serialBuf.startsWith("thinking ")) {   // thinking face + typing arms
                 faceCycling = false; faceShow(F_THINKING, faceBot);
@@ -679,25 +827,34 @@ void handleSerial() {
             }
             else if (serialBuf.equalsIgnoreCase("sleep")) {   // eyes-style sleeping face, arms back to rest
                 armsThinking = false; armsPose = POSE_NONE; faceCycling = false; faceShow(F_SLEEPING, false);
-                Serial.println("[sleep] face eyes sleeping, arms off");
+                Con.println("[sleep] face eyes sleeping, arms off");
             }
             else if (serialBuf.equalsIgnoreCase("done") || serialBuf.equalsIgnoreCase("question")) {   // face + sound + arm pose
                 bool done = serialBuf.equalsIgnoreCase("done");
                 armsThinking = false; armsPose = done ? POSE_DONE : POSE_QUESTION; faceCycling = false;
                 faceShow(done ? F_DONE : F_QUESTION, faceBot); soundPlayNamed(done ? "done" : "question");
-                Serial.printf("[%s] face, sound and arms (stop with \"arms off\")\n", done ? "done" : "question");
+                Con.printf("[%s] face, sound and arms (stop with \"arms off\")\n", done ? "done" : "question");
             }
             else if (serialBuf.equalsIgnoreCase("reset")) { armsThinking = false; armsPose = POSE_NONE; armsCancel = true; servosToDefault(); if (gState == GState::IDLE) selectServo(activeServo); }
             else { char buf[81]; serialBuf.substring(0, 80).toCharArray(buf, sizeof(buf)); xQueueSend(msgQueue, buf, 0); }
             serialBuf = "";
-        } else if (serialBuf.length() < 80) serialBuf += c;
-    }
+        }
+}
+
+static void feedChar(String& buf, char c) {
+    if (c == '\r') return;
+    if (c == '\n') runCommand(buf); else if (buf.length() < 80) buf += c;
+}
+static String serialBuf = "", bleBuf = "";
+void handleSerial() {   // USB serial and BLE share the same command set
+    while (Serial.available()) feedChar(serialBuf, Serial.read());
+    char c; while (xQueueReceive(bleRxQueue, &c, 0) == pdTRUE) feedChar(bleBuf, c);
 }
 
 void setup() {
     Serial.begin(115200); auto cfg = M5.config(); M5Dial.begin(cfg, true, true); M5Dial.Display.setRotation(DISPLAY_ROTATION);
-    pcaOk = pcaBegin(); Serial.printf("[pca9685] %s\n", pcaOk ? "found at 0x40" : "NOT found on Port A");
-    servosToDefault();
+    pcaOk = pcaBegin(); Con.printf("[pca9685] %s\n", pcaOk ? "found at 0x40" : "NOT found on Port A");
+    servosToDefault(); bleBegin();
     M5Dial.Display.setTextColor(WHITE); M5Dial.Display.setTextDatum(middle_center); canvas.createSprite(240, 240);
     dataMutex = xSemaphoreCreateMutex(); msgQueue = xQueueCreate(4, 81); encoderQueue = xQueueCreate(8, sizeof(long));
     randomSeed(esp_random()); showBootInfo(); xTaskCreatePinnedToCore(encoderTask, "EncTask", 2048, NULL, 2, NULL, 0); selectServo(0);
@@ -844,7 +1001,7 @@ void armsUpdate(bool active) {
 }
 
 void loop() {
-    M5Dial.update(); handleSerial(); soundUpdate(); armsUpdate(armsThinking); servoUpdate(); if (gState == GState::FACE) { if (M5Dial.BtnA.wasHold()) faceExit(); } else if (M5Dial.BtnA.wasPressed()) mazeButtonPress();
+    Con.bleFlush(); M5Dial.update(); handleSerial(); soundUpdate(); armsUpdate(armsThinking); servoUpdate(); if (gState == GState::FACE) { if (M5Dial.BtnA.wasHold()) faceExit(); } else if (M5Dial.BtnA.wasPressed()) mazeButtonPress();
     if (gState == GState::IDLE) {
         char buf[81]; if (xQueueReceive(msgQueue, buf, 0) == pdTRUE) { drawMessage(String(buf)); M5Dial.Speaker.tone(2000, 100); }
         long encVal; while (xQueueReceive(encoderQueue, &encVal, 0) == pdTRUE) { servoPos[activeServo] = encVal; servoWriteAngle(activeServo, posToDeg(encVal)); drawEncoderGauge(encVal); }
