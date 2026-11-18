@@ -9,7 +9,7 @@ The robot is a remix of [Tiny Engineer](https://github.com/jamro/tiny-engineer) 
 
 Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-S3, round 240×240 display, rotary encoder, touch, RFID). It does these things:
 
-- **Animated robot faces**: two styles ("bot" and "eyes") with ten expressions and matching sounds, plus cartoon "done" and "question" faces.
+- **Animated robot faces** in three styles: "eyes" (big glowing eyes), "bot" (LED face with teeth) and "toon" (yellow cartoon faces: `grin`, `grumpy`, `silly`, `goofy`, `smile`, `laugh`, `meh`, `evil`, `cheesy`). Every style has its own thinking, done, question and sleep faces. Choose one with `face eyes`, `face bot` or `face toon`; the choice is saved on the dial.
 - **Typing arms**: the robot's two arm servos "type on a laptop" while the thinking face reads the screen.
 - **One-word animations**: `thinking`, `done`, `question` and `sleep` set the face, sound and arm movement together.
 - **Servo control**: the dial drives three hobby servos through a PCA9685 board on Port A, with a round gauge showing the angle.

@@ -715,14 +715,15 @@ static void armsThinkingStart(const char* args, const char* tag) {
 struct HelpTopic { const char* name; const char* text; };
 static const HelpTopic HELP_TOPICS[] = {
     {"status",   "status - mode, face, servo angles, arms, sound, BLE and build info"},
-    {"thinking", "thinking [deg/s] [min s] [max s] - thinking face + typing arms\n"
+    {"thinking", "thinking [deg/s] [min s] [max s] - thinking face (with short detours to other faces) + typing arms\n"
                  "  deg/s: arm speed (default 100). min/max s: random pause between keystrokes (default 0.1-1)\n"
                  "  e.g. thinking | thinking 150 | thinking 80 0.2 2"},
     {"done",     "done - done face, done sound and a 'finished' arm wave. Stop the arms with: arms off"},
     {"question", "question - question face, question sound and a 'hand up' arm pose. Stop with: arms off"},
     {"sleep",    "sleep - sleeping eyes, arms back to rest"},
-    {"face",     "face [bot|eyes] <name|cycle|off> - show a face\n"
-                 "  bot = teeth style, eyes = big-eye style. 'face' alone lists the names. Hold the button to leave.\n"
+    {"face",     "face [eyes|bot|toon] <name|cycle|off> - show a face\n"
+                 "  eyes = big-eye style, bot = teeth style, toon = yellow cartoon. The style is saved and also used by\n"
+                 "  thinking/done/question/sleep. 'face toon' alone switches style. 'face' alone lists the names. Hold the button to leave.\n"
                  "  e.g. face happy | face bot thinking | face cycle | face off"},
     {"sound",    "sound <name|stop|vol N> - play a sound. 'sound' alone lists the names\n"
                  "  sound typing [seconds] [speed|slow|fast|turbo] - keyboard clicks\n"
@@ -763,7 +764,7 @@ static void printStatus() {
     xSemaphoreTake(dataMutex, portMAX_DELAY); String rfid = last_rfid; xSemaphoreGive(dataMutex);
     unsigned long up = millis() / 1000;
     static const char* const MODES[] = {"servo dial", "maze", "maze won", "face"};
-    if (gState == GState::FACE) Con.printf("[status] mode: face - %s%s%s\n", faceBot ? "bot " : "", FACES[faceIdx].name, faceCycling ? " (cycling)" : "");
+    if (gState == GState::FACE) Con.printf("[status] mode: face - %s %s%s\n", STYLE_NAMES[faceStyle], FACES[faceIdx].name, faceCycling ? " (cycling)" : faceThinkMix ? " (thinking mix)" : "");
     else if (gState == GState::IDLE) Con.printf("[status] mode: servo dial - turning the dial moves servo %d, tap the screen for the next one\n", activeServo + 1);
     else Con.printf("[status] mode: %s\n", MODES[(int)gState]);
     Con.print("[status] servos:");
@@ -822,17 +823,17 @@ static void runCommand(String& serialBuf) {
                 else Con.println("[arms] usage: arms thinking [deg/s] [min s] [max s] | arms done | arms question | arms off");
             }
             else if (serialBuf.equalsIgnoreCase("thinking") || serialBuf.startsWith("thinking ")) {   // thinking face + typing arms
-                faceCycling = false; faceShow(F_THINKING, faceBot);
+                faceCycling = faceThinkMix = false; faceShow(F_THINKING, faceStyleSetting); faceThinkMix = true; faceThinkAt = millis() + random(5000, 10001);
                 armsThinkingStart(serialBuf.c_str() + 8, "thinking");
             }
             else if (serialBuf.equalsIgnoreCase("sleep")) {   // eyes-style sleeping face, arms back to rest
-                armsThinking = false; armsPose = POSE_NONE; faceCycling = false; faceShow(F_SLEEPING, false);
-                Con.println("[sleep] face eyes sleeping, arms off");
+                armsThinking = false; armsPose = POSE_NONE; faceCycling = faceThinkMix = false; faceShow(F_SLEEPING, faceStyleSetting);
+                Con.printf("[sleep] face %s sleeping, arms off\n", STYLE_NAMES[faceStyleSetting]);
             }
             else if (serialBuf.equalsIgnoreCase("done") || serialBuf.equalsIgnoreCase("question")) {   // face + sound + arm pose
                 bool done = serialBuf.equalsIgnoreCase("done");
-                armsThinking = false; armsPose = done ? POSE_DONE : POSE_QUESTION; faceCycling = false;
-                faceShow(done ? F_DONE : F_QUESTION, faceBot); soundPlayNamed(done ? "done" : "question");
+                armsThinking = false; armsPose = done ? POSE_DONE : POSE_QUESTION; faceCycling = faceThinkMix = false;
+                faceShow(done ? F_DONE : F_QUESTION, faceStyleSetting); soundPlayNamed(done ? "done" : "question");
                 Con.printf("[%s] face, sound and arms (stop with \"arms off\")\n", done ? "done" : "question");
             }
             else if (serialBuf.equalsIgnoreCase("reset")) { armsThinking = false; armsPose = POSE_NONE; armsCancel = true; servosToDefault(); if (gState == GState::IDLE) selectServo(activeServo); }
@@ -858,7 +859,8 @@ void setup() {
     M5Dial.Display.setTextColor(WHITE); M5Dial.Display.setTextDatum(middle_center); canvas.createSprite(240, 240);
     dataMutex = xSemaphoreCreateMutex(); msgQueue = xQueueCreate(4, 81); encoderQueue = xQueueCreate(8, sizeof(long));
     randomSeed(esp_random()); showBootInfo(); xTaskCreatePinnedToCore(encoderTask, "EncTask", 2048, NULL, 2, NULL, 0); selectServo(0);
-    faceShow(F_THINKING, true);   // start on the bot "thinking" face; button press goes to the servo dial
+    faceLoadStyle();
+    faceShow(F_THINKING, faceStyleSetting);   // start on the "thinking" face in the saved style; button press goes to the servo dial
 }
 
 // Arm "typing" animation while "arms thinking" is on. Each arm rests at `home` and types a keystroke by
@@ -1021,7 +1023,7 @@ void loop() {
         static unsigned long faceMsgUntil = 0;
         char buf[81];
         if (xQueueReceive(msgQueue, buf, 0) == pdTRUE) { drawMessage(String(buf)); faceMsgUntil = millis() + 3000; }   // message shows briefly, face stays active
-        if (M5Dial.Touch.getDetail().wasPressed()) { faceCycling = false; faceMsgUntil = 0; faceShow((faceIdx + 1) % FACE_COUNT, faceBot); }
+        if (M5Dial.Touch.getDetail().wasPressed()) { faceCycling = faceThinkMix = false; faceMsgUntil = 0; faceShow(faceNextInStyle(faceIdx, faceStyleSetting), faceStyleSetting); }
         if ((long)(millis() - faceMsgUntil) >= 0) faceUpdate();
     } else {
         // MAZE_WIN — drain queues, hold the win banner

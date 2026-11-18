@@ -2,9 +2,16 @@
 // Serial: "face [bot|eyes] <name>", "face cycle", "face off", "face" (list).
 // Included from m5dail_proj.ino after its globals (canvas, gState, isMoving, ...).
 #pragma once
+#include <Preferences.h>
+
+enum FaceStyle : uint8_t { STYLE_EYES, STYLE_BOT, STYLE_TOON, STYLE_COUNT };
+const char* const STYLE_NAMES[STYLE_COUNT] = {"eyes", "bot", "toon"};
 
 enum EyeStyle : uint8_t { EYE_PUPIL, EYE_HAPPY, EYE_RING, EYE_HEART, EYE_CLOSED_UP, EYE_CLOSED_DOWN, EYE_HEART_PUPIL, EYE_WIDE };
-enum FaceId   : uint8_t { F_HAPPY, F_SAD, F_SURPRISED, F_ANGRY, F_EXCITED, F_CONFUSED, F_THINKING, F_WINKING, F_LOVE, F_SLEEPING, F_DONE, F_QUESTION, FACE_COUNT };
+enum FaceId   : uint8_t { F_HAPPY, F_SAD, F_SURPRISED, F_ANGRY, F_EXCITED, F_CONFUSED, F_THINKING, F_WINKING, F_LOVE, F_SLEEPING, F_DONE, F_QUESTION,
+                        F_GRIN, F_GRUMPY, F_SILLY, F_GOOFY, F_SMILE, F_LAUGH, F_MEH, F_EVIL, F_CHEESY,   // toon faces: toon_faces.h
+                        FACE_COUNT };
+constexpr int F_TOON_FIRST = F_GRIN;
 
 constexpr float NO_LID = -9.0f, NO_BROW = -9.0f;
 
@@ -27,6 +34,10 @@ const FaceSpec FACES[FACE_COUNT] = {
   {"sleeping",  60, 120, 255, {{EYE_CLOSED_DOWN, NO_LID, NO_LID, NO_BROW, 0, 0},      {EYE_CLOSED_DOWN, NO_LID, NO_LID, NO_BROW, 0, 0}},      0.0f,  0.0f},
   {"done",      60, 120, 255, {{EYE_CLOSED_UP, NO_LID, NO_LID, NO_BROW, 0, 0},        {EYE_CLOSED_UP, NO_LID, NO_LID, NO_BROW, 0, 0}},        0.0f,  0.0f},   // own drawing: drawDoneFace()
   {"question",  60, 120, 255, {{EYE_PUPIL, NO_LID, NO_LID, NO_BROW, 0, 0},            {EYE_PUPIL, NO_LID, NO_LID, NO_BROW, 0, 0}},            0.0f,  0.0f},   // own drawing: drawQuestionFace()
+  // Toon faces (yellow cartoon style, same in "bot" and "eyes" mode): own drawing in toon_faces.h. Only name + colour used here.
+  {"grin",     255, 192, 0}, {"grumpy",   255, 192, 0}, {"silly",    255, 192, 0},
+  {"goofy",    255, 192, 0}, {"smile",    255, 192, 0}, {"laugh",    255, 192, 0},
+  {"meh",      255, 192, 0}, {"evil",     255, 192, 0}, {"cheesy",   255, 192, 0},
 };
 
 constexpr int   FACE_EYE_R = 36, FACE_EYE_Y = 126;
@@ -34,7 +45,11 @@ constexpr int   FACE_EYE_X[2] = {72, 168};
 constexpr unsigned long FACE_TRANS_MS = 130, FACE_BLINK_MS = 160, FACE_FRAME_MS = 33, FACE_CYCLE_MS = 3500;
 
 int   faceIdx = 0, facePending = -1;
-bool  faceOpening = false, faceCycling = false, faceBot = false, facePendingBot = false;
+bool  faceThinkMix = false;   // "thinking" mood: thinking face with short detours to other expressions
+unsigned long faceThinkAt = 0;
+bool  faceOpening = false, faceCycling = false;
+uint8_t faceStyle = STYLE_BOT, facePendingStyle = STYLE_BOT;   // style on screen now
+uint8_t faceStyleSetting = STYLE_BOT;                          // style chosen by the user (saved in flash)
 unsigned long faceWinkStart = 0, faceTransStart = 0, faceBlinkStart = 0, faceNextBlink = 0, faceNextSaccade = 0, faceLastFrame = 0, faceCycleAt = 0;
 float faceLookX = 0, faceLookY = 0, faceSacX = 0, faceSacY = 0;
 
@@ -171,8 +186,9 @@ const BotFace BOT_FACES[FACE_COUNT] = {
   /* winking   */ {{{BE_DOT, 1, NO_LID, NO_LID},          {BE_DOT, 1, NO_LID, NO_LID}},          {150, 44, 10, 0, 6, 2, 6, 0}},
   /* love      */ {{{BE_HEART, 1, NO_LID, NO_LID},        {BE_HEART, 1, NO_LID, NO_LID}},        {150, 40, 12, 0, 0, 2, 7, 0}},
   /* sleeping  */ {{{BE_BAR, 1, NO_LID, NO_LID},          {BE_BAR, 1, NO_LID, NO_LID}},          {140, 42, 0, 0, 0, 2, 6, 0}},
-  /* done      */ {{{BE_ARC, 1, NO_LID, NO_LID},          {BE_ARC, 1, NO_LID, NO_LID}},          {160, 46, 14, 0, 0, 2, 7, 0}},   // not used: drawDoneFace()
-  /* question  */ {{{BE_DOT, 1, NO_LID, NO_LID},          {BE_DOT, 1, NO_LID, NO_LID}},          {66, 70, 0, 0, 0, 4, 4, 0}},     // not used: drawQuestionFace()
+  /* done      */ {{{BE_DOT, 1, NO_LID, NO_LID},          {BE_DOT, 1, NO_LID, NO_LID}},          {160, 48, 12, 0, 6, 2, 7, 0}},   // winking variant + check mark
+  /* question  */ {{{BE_DOT, 1, NO_LID, NO_LID},          {BE_RING, 1.08f, NO_LID, NO_LID}},     {44, 44, 0, 0, 0, 2, 2, 0}},     // + "?", eyes rolled up
+  // toon faces: not used, drawn by drawToonFace()
 };
 
 constexpr int BOT_EYE_R = 40, BOT_EYE_Y = 88, BOT_MOUTH_Y = 172;
@@ -372,6 +388,9 @@ static void drawQuestionFace(float t, float closed) {
     canvas.setTextSize(1);
 }
 
+#include "toon_faces.h"
+static int toonIdFor(int idx, uint8_t style);
+
 static float facePulse(float x) { return x >= 0 ? expf(-x * 12.0f) : 0.0f; }
 
 void drawFace() {
@@ -381,7 +400,7 @@ void drawFace() {
     // Face change = quick close with the old face, then open with the new one.
     if (facePending >= 0) {
         float p = (now - faceTransStart) / (float)FACE_TRANS_MS;
-        if (p >= 1) { faceIdx = facePending; faceBot = facePendingBot; facePending = -1; faceOpening = true; faceTransStart = now; closed = 1; }
+        if (p >= 1) { faceIdx = facePending; faceStyle = facePendingStyle; facePending = -1; faceOpening = true; faceTransStart = now; closed = 1; }
         else closed = p;
     } else if (faceOpening) {
         float p = (now - faceTransStart) / (float)FACE_TRANS_MS;
@@ -390,13 +409,24 @@ void drawFace() {
 
     const FaceSpec& f = FACES[faceIdx];
     float t = now / 1000.0f;
-    if (faceIdx == F_DONE && closed == 0) { drawDoneFace(t); canvas.pushSprite(0, 0); return; }
-    if (faceIdx == F_DONE) { canvas.fillScreen(faceBg()); canvas.pushSprite(0, 0); return; }   // during the switch-over blink
-    if (faceIdx == F_QUESTION) {   // blinks like the other faces
+    int tid = toonIdFor(faceIdx, faceStyle);
+    if (faceStyle == STYLE_EYES && faceIdx == F_DONE && closed == 0) { drawDoneFace(t); canvas.pushSprite(0, 0); return; }
+    if (faceStyle == STYLE_EYES && faceIdx == F_DONE) { canvas.fillScreen(faceBg()); canvas.pushSprite(0, 0); return; }   // during the switch-over blink
+    if (faceStyle == STYLE_EYES && faceIdx == F_QUESTION) {   // blinks like the other faces
         float c = closed, bp = (now - faceBlinkStart) / (float)FACE_BLINK_MS;
         if (now >= faceNextBlink) { faceBlinkStart = now; faceNextBlink = now + random(2200, 5500); }
         if (bp < 1) c = max(c, 1 - fabsf(2 * bp - 1));
         drawQuestionFace(t, c); canvas.pushSprite(0, 0); return;
+    }
+
+    if (tid >= 0) {   // toon faces blink and glance like the others, but draw themselves
+        if (tid == T_SLEEP || tid == T_DONE) faceNextBlink = now + 1000;   // eyes already shut
+        if (now >= faceNextBlink) { faceBlinkStart = now; faceNextBlink = now + random(2200, 5500); }
+        if (now >= faceNextSaccade) { faceSacX = random(-35, 36) / 100.0f; faceSacY = random(-20, 21) / 100.0f; faceNextSaccade = now + random(800, 2800); }
+        float c = closed, bp = (now - faceBlinkStart) / (float)FACE_BLINK_MS;
+        if (bp < 1) c = max(c, 1 - fabsf(2 * bp - 1));
+        faceLookX += (faceSacX - faceLookX) * 0.25f; faceLookY += (faceSacY - faceLookY) * 0.25f;
+        drawToonFace(tid, t, c, faceLookX, faceLookY); canvas.pushSprite(0, 0); return;
     }
 
     if (faceIdx != F_SLEEPING && now >= faceNextBlink) { faceBlinkStart = now; faceNextBlink = now + random(2200, 5500); }
@@ -416,6 +446,7 @@ void drawFace() {
     case F_EXCITED:   offY = -fabsf(sinf(t * 7)) * 6; pupil = 1.1f + 0.2f * sinf(t * 12); lift[0] = lift[1] = -fabsf(sinf(t * 7)) * 0.12f; break;
     case F_CONFUSED:  lx = fmodf(t, 2.4f) < 1.2f ? -0.5f : 0.4f; lift[1] = -0.1f * (0.5f + 0.5f * sinf(t * 4)); sacc = 0; break;
     case F_THINKING:  { float rx, ry; faceReading(t, rx, ry); lx = rx * 0.50f; ly = 0.75f + ry * 0.25f; sacc = 0; } break;
+    case F_DONE:      offY = -fabsf(sinf(t * 4)) * 3;   // bot done = winking with a little hop (falls through)
     case F_WINKING: {
         unsigned long ph = (now - faceWinkStart) % 2600;
         wink = ph < 90 ? ph / 90.0f : ph < 370 ? 1 : ph < 480 ? 1 - (ph - 370) / 110.0f : 0;
@@ -424,13 +455,14 @@ void drawFace() {
     } break;
     case F_LOVE:      { float hb = fmodf(t, 1.0f); heart = 0.9f + 0.22f * (facePulse(hb) + facePulse(hb - 0.22f)); } break;
     case F_SLEEPING:  offY = sinf(t * 0.8f) * 3; break;
+    case F_QUESTION:  sacc = 0; break;
     }
     lx += faceSacX * sacc; ly += faceSacY * sacc;
     faceLookX += (lx - faceLookX) * 0.25f;
     faceLookY += (ly - faceLookY) * 0.25f;
 
     canvas.fillScreen(faceBg());
-    if (faceBot) {
+    if (faceStyle == STYLE_BOT) {
         const BotFace& bf = BOT_FACES[faceIdx];
         uint16_t yel = botYellow();
         float hScale = 1;
@@ -448,10 +480,16 @@ void drawFace() {
             mouthX = 132;
             mouth.tilt = 3 * sinf(t * 0.9f);
         }
+        if (faceIdx == F_QUESTION) {
+            // Eyes rolled up toward the "?", glancing straight up now and then; small "o" mouth to one side.
+            float g = fmodf(t, 4.0f), glance = g < 2.6f ? 0 : g < 2.8f ? (g - 2.6f) / 0.2f : g < 3.6f ? 1 : 1 - (g - 3.6f) / 0.4f;
+            blx = 0.45f - 0.40f * glance; bly = -0.60f;
+            mouthX = 108;
+        }
         for (int i = 0; i < 2; i++) {
             const BotEye& e = bf.eye[i];
             float ex = BOT_EYE_X[i] + offX, ey = BOT_EYE_Y + offY + lift[i] * 20;
-            if (faceIdx == F_THINKING && i == 1) ey -= 5;   // one eye raised, like a lifted eyebrow
+            if ((faceIdx == F_THINKING || faceIdx == F_QUESTION) && i == 1) ey -= 5;   // one eye raised, like a lifted eyebrow
             float cl = i == 1 ? max(closed, wink) : closed;
             if (i == 1 && wink > 0.85f) { BotEye shut = e; shut.style = BE_BAR; botEye(ex, ey, shut, 0, 0, 1, 1); continue; }
             botEye(ex, ey, e, blx, bly, pupil, heart);
@@ -468,6 +506,12 @@ void drawFace() {
             }
         }
         if (faceIdx == F_SLEEPING) faceZzz(t, 200, 240, 255, 150, 50);
+        if (faceIdx == F_QUESTION) toonQuestionMark(120, 30 + sinf(t * 2.5f) * 3, 0.85f, yel);
+        if (faceIdx == F_DONE) {   // check mark above the eyes, popping in and out
+            float k = 0.85f + 0.15f * fabsf(sinf(t * 4)), cx = 120, cy = 34 + offY * 0.5f;
+            toonCurve(cx - 16 * k, cy, cx - 10 * k, cy + 6 * k, cx - 4 * k, cy + 12 * k, 9, 9, yel);
+            toonCurve(cx - 4 * k, cy + 12 * k, cx + 8 * k, cy - 2 * k, cx + 20 * k, cy - 16 * k, 9, 9, yel);
+        }
         botLedGrid();
         canvas.pushSprite(0, 0);
         return;
@@ -506,47 +550,119 @@ int faceFind(const String& name) {
     return -1;
 }
 
-void faceShow(int idx, bool bot) {
+// Toon drawing for a face, or -1 if it isn't drawn toon-style. Toon-named faces are always toon;
+// in the toon style the other names map to the closest toon face.
+static int toonIdFor(int idx, uint8_t style) {
+    if (idx >= F_TOON_FIRST) return idx - F_TOON_FIRST;
+    if (style != STYLE_TOON) return -1;
+    switch (idx) {
+    case F_HAPPY: case F_LOVE: return T_SMILE;
+    case F_SAD:       return T_MEH;
+    case F_SURPRISED: return T_GOOFY;
+    case F_ANGRY:     return T_GRUMPY;
+    case F_EXCITED:   return T_GRIN;
+    case F_CONFUSED:  return T_SILLY;
+    case F_THINKING:  return T_THINK;
+    case F_WINKING:   return T_CHEESY;
+    case F_SLEEPING:  return T_SLEEP;
+    case F_DONE:      return T_DONE;
+    case F_QUESTION:  return T_QUESTION;
+    }
+    return -1;
+}
+
+// Faces each style steps through on a screen tap / "face cycle".
+static const uint8_t STYLE_CYCLE_EYES_BOT[] = {F_HAPPY, F_SAD, F_SURPRISED, F_ANGRY, F_EXCITED, F_CONFUSED, F_THINKING, F_WINKING, F_LOVE, F_SLEEPING, F_DONE, F_QUESTION};
+static const uint8_t STYLE_CYCLE_TOON[]     = {F_GRIN, F_GRUMPY, F_SILLY, F_GOOFY, F_SMILE, F_LAUGH, F_MEH, F_EVIL, F_CHEESY, F_THINKING, F_DONE, F_QUESTION, F_SLEEPING};
+int faceNextInStyle(int idx, uint8_t style) {
+    const uint8_t* list = style == STYLE_TOON ? STYLE_CYCLE_TOON : STYLE_CYCLE_EYES_BOT;
+    int n = style == STYLE_TOON ? sizeof(STYLE_CYCLE_TOON) : sizeof(STYLE_CYCLE_EYES_BOT);
+    for (int i = 0; i < n; i++) if (list[i] == idx) return list[(i + 1) % n];
+    return list[0];
+}
+
+void faceShow(int idx, uint8_t style) {
     unsigned long now = millis();
     if (gState != GState::FACE) {
         gState = GState::FACE; isMoving = false;
-        faceIdx = idx; faceBot = bot; facePending = -1; faceOpening = true; faceTransStart = now;
-    } else if (idx != faceIdx || bot != faceBot || facePending >= 0) {
-        facePending = idx; facePendingBot = bot; faceOpening = false; faceTransStart = now;
+        faceIdx = idx; faceStyle = style; facePending = -1; faceOpening = true; faceTransStart = now;
+    } else if (idx != faceIdx || style != faceStyle || facePending >= 0) {
+        facePending = idx; facePendingStyle = style; faceOpening = false; faceTransStart = now;
     }
     faceNextBlink = now + random(2000, 4000);
-    if (idx == F_WINKING) faceWinkStart = now + FACE_TRANS_MS * 2 + 500 - 2600;   // first wink ~0.75 s in
+    if (idx == F_WINKING || idx == F_DONE) faceWinkStart = now + FACE_TRANS_MS * 2 + 500 - 2600;   // first wink ~0.75 s in
 }
 
-void faceExit() { faceCycling = false; mazeExitToIdle(); }
+// The chosen style is kept in flash, so it survives a restart.
+void faceLoadStyle() {
+    Preferences p; p.begin("face", true);
+    faceStyleSetting = p.getUChar("style", STYLE_BOT);
+    p.end();
+    if (faceStyleSetting >= STYLE_COUNT) faceStyleSetting = STYLE_BOT;
+}
+void faceSetStyle(uint8_t style) {
+    if (style == faceStyleSetting) return;
+    faceStyleSetting = style;
+    Preferences p; p.begin("face", false); p.putUChar("style", style); p.end();
+}
+
+// Thinking mood: read the screen for 5-10 s, then pull a face for 2.5-4 s (puzzled, "aha!", frustrated,
+// pleased...), then go back to reading. Detours come from the chosen style; never the same one twice in a row.
+static const uint8_t THINK_DETOURS[]      = {F_CONFUSED, F_SURPRISED, F_EXCITED, F_ANGRY, F_HAPPY, F_WINKING, F_SAD, F_LOVE};
+static const uint8_t THINK_DETOURS_TOON[] = {F_GRIN, F_GRUMPY, F_SILLY, F_GOOFY, F_SMILE, F_LAUGH, F_MEH, F_EVIL, F_CHEESY};
+void faceThinkStep(unsigned long now) {
+    static int last = -1;
+    uint8_t style = faceStyleSetting;
+    if (faceIdx != F_THINKING || facePending >= 0) { faceShow(F_THINKING, style); faceThinkAt = now + random(5000, 10001); return; }
+    bool toon = style == STYLE_TOON;
+    int n = toon ? sizeof(THINK_DETOURS_TOON) : sizeof(THINK_DETOURS), pick;
+    do pick = random(n); while (pick == last && n > 1);
+    last = pick;
+    faceShow(toon ? THINK_DETOURS_TOON[pick] : THINK_DETOURS[pick], style);
+    faceThinkAt = now + random(2500, 4001);
+}
+
+void faceExit() { faceCycling = faceThinkMix = false; mazeExitToIdle(); }
 
 void faceUpdate() {
     unsigned long now = millis();
     if (now - faceLastFrame < FACE_FRAME_MS) return;
     faceLastFrame = now;
-    if (faceCycling && now >= faceCycleAt) { faceCycleAt = now + FACE_CYCLE_MS; faceShow((faceIdx + 1) % FACE_COUNT, faceBot); }
+    if (faceCycling && now >= faceCycleAt) { faceCycleAt = now + FACE_CYCLE_MS; faceShow(faceNextInStyle(faceIdx, faceStyleSetting), faceStyleSetting); }
+    if (faceThinkMix && now >= faceThinkAt) faceThinkStep(now);
     drawFace();
 }
 
 static void faceListNames() {
     Con.print("[face] names:");
     for (int i = 0; i < FACE_COUNT; i++) Con.printf(" %s", FACES[i].name);
-    Con.println("  (also: cycle, off; prefix \"bot\" for the teeth style, \"eyes\" for the big-eye style)");
+    Con.printf("\n[face] style: %s  (change with: face eyes | face bot | face toon [name]; also: cycle, off)\n", STYLE_NAMES[faceStyleSetting]);
 }
 
 void handleFaceCommand(String arg) {
     arg.trim();
-    // Optional style prefix: "bot" (teeth face) or "eyes" (big-eye face). Without it the current style is kept.
-    bool bot = (gState == GState::FACE) ? faceBot : false;
-    String lower = arg; lower.toLowerCase();
-    if (lower == "bot" || lower.startsWith("bot "))   { bot = true;  arg = arg.substring(3); arg.trim(); if (!arg.length()) arg = FACES[gState == GState::FACE ? faceIdx : 0].name; }
-    else if (lower == "eyes" || lower.startsWith("eyes ")) { bot = false; arg = arg.substring(4); arg.trim(); if (!arg.length()) arg = FACES[gState == GState::FACE ? faceIdx : 0].name; }
+    // Optional style word first: "eyes", "bot" or "toon". It becomes the saved style (used by thinking/done/question/sleep too).
+    for (uint8_t s = 0; s < STYLE_COUNT; s++) {
+        size_t len = strlen(STYLE_NAMES[s]);
+        String lower = arg; lower.toLowerCase();
+        if (lower == STYLE_NAMES[s] || lower.startsWith(String(STYLE_NAMES[s]) + " ")) {
+            faceSetStyle(s);
+            arg = arg.substring(len); arg.trim();
+            if (!arg.length()) {   // style only: redraw the current face in the new style
+                Con.printf("[face] style %s\n", STYLE_NAMES[s]);
+                if (gState == GState::FACE) faceShow(faceIdx, s);
+                return;
+            }
+            break;
+        }
+    }
+    uint8_t style = faceStyleSetting;
     if (arg.length() == 0) { faceListNames(); return; }
     if (arg.equalsIgnoreCase("off")) { if (gState == GState::FACE) faceExit(); Con.println("[face] off"); return; }
-    if (arg.equalsIgnoreCase("cycle")) { faceCycling = true; faceCycleAt = millis() + FACE_CYCLE_MS; faceShow(gState == GState::FACE ? (faceIdx + 1) % FACE_COUNT : 0, bot); Con.println("[face] cycling"); return; }
+    if (arg.equalsIgnoreCase("cycle")) { faceCycling = true; faceThinkMix = false; faceCycleAt = millis() + FACE_CYCLE_MS; faceShow(faceNextInStyle(gState == GState::FACE ? faceIdx : -1, style), style); Con.println("[face] cycling"); return; }
     int idx = faceFind(arg);
     if (idx < 0) { Con.printf("[face] unknown '%s'\n", arg.c_str()); faceListNames(); return; }
-    faceCycling = false;
-    faceShow(idx, bot);
-    Con.printf("[face] %s%s\n", bot ? "bot " : "", FACES[idx].name);
+    faceCycling = faceThinkMix = false;
+    faceShow(idx, style);
+    Con.printf("[face] %s %s\n", STYLE_NAMES[style], FACES[idx].name);
 }

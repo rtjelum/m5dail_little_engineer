@@ -1,6 +1,6 @@
 #!/bin/bash
 # Send a face command to the M5Dial over serial.
-# Usage: ./face.sh [bot|eyes] <happy|sad|surprised|angry|excited|confused|thinking|winking|love|sleeping|done|question|cycle|off>
+# Usage: ./face.sh [eyes|bot|toon] <happy|sad|surprised|angry|excited|confused|thinking|winking|love|sleeping|done|question|grin|grumpy|silly|goofy|smile|laugh|meh|evil|cheesy|cycle|off>
 #        ./face.sh sound <done|success|question|error|alert|hello|bye|wow|sad|thinking|love|sleep|startup|beep|stop>
 #        ./face.sh sound typing [seconds] [speed|slow|normal|fast|turbo]   (default 6 s, speed 1)
 #        ./face.sh sound vol <0-255>
@@ -15,6 +15,7 @@
 #        ./face.sh pwm <40-330>        (servo PWM frequency in Hz, default 50)
 #        ./face.sh reset               (all servos back to default)
 #        ./face.sh rotate <0-3>        (0 = normal, 1 = 90° cw, 2 = 180°, 3 = 270°)
+#        ./face.sh eyes|bot|toon  (switch the saved face style; thinking/done/question/sleep use it too)
 #        ./face.sh            (lists face names)   ./face.sh sound   (lists sounds)
 # Override the port with PORT=/dev/cu.xxx ./face.sh sad
 PORT="${PORT:-/dev/cu.usbmodem1101}"
