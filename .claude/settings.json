@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/claude_dial.sh thinking", "async": true }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/claude_dial.sh question", "async": true }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/claude_dial.sh thinking", "async": true }] }
+    ],
+    "Notification": [
+      { "matcher": "permission_prompt|elicitation_dialog", "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/claude_dial.sh question", "async": true }] },
+      { "matcher": "idle_prompt", "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/claude_dial.sh sleep", "async": true }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/claude_dial.sh done", "async": true }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/claude_dial.sh sleep" }] }
+    ]
+  }
+}

@@ -12,6 +12,7 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 - **Animated robot faces** in three styles: "eyes" (big glowing eyes), "bot" (LED face with teeth) and "toon" (yellow cartoon faces: `grin`, `grumpy`, `silly`, `goofy`, `smile`, `laugh`, `meh`, `evil`, `cheesy`). Every style has its own thinking, done, question and sleep faces. Choose one with `face eyes`, `face bot` or `face toon`; the choice is saved on the dial.
 - **Typing arms**: the robot's two arm servos "type on a laptop" while the thinking face reads the screen.
 - **One-word animations**: `thinking`, `done`, `question` and `sleep` set the face, sound and arm movement together.
+- **Claude Code mood light**: hooks make the robot show what Claude Code is doing (thinking, asking, done, asleep).
 - **Servo control**: the dial drives three hobby servos through a PCA9685 board on Port A, with a round gauge showing the angle.
 - **RFID reader**: tap a card and its UID is shown on screen.
 - **USB serial and Bluetooth LE commands**: the same command set over a USB cable or wirelessly, with `help` and `status` to find your way around.
@@ -28,6 +29,7 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 ./face.sh thinking
 ./face.sh thinking 40 0.2 1.5
 ./face.sh bot happy
+./face.sh toon          # switch the saved face style
 ./face.sh sound done
 ./face.sh done
 ./face.sh question
@@ -36,7 +38,7 @@ Firmware for the [M5Stack Dial](https://docs.m5stack.com/en/core/M5Dial) (ESP32-
 
 ### Typing arms
 
-`thinking` shows the thinking face and starts the typing arms. It takes the same optional speed and pause values as `arms thinking`, which starts only the arms (`face thinking` starts only the face). The arms type like the robot is working on a laptop:
+`thinking` shows the thinking face and starts the typing arms. Every 5–10 s the face takes a short 2.5–4 s detour to another expression from the current style (puzzled, "aha!", frustrated, pleased…) and then goes back to reading. It takes the same optional speed and pause values as `arms thinking`, which starts only the arms (`face thinking` starts only the face). The arms type like the robot is working on a laptop:
 
 - One keystroke at a time: a random arm presses and comes back up. Servo 1 rests at 135° and presses to 145°. Servo 3 rests at 40° and presses to 30°.
 - After each keystroke there is a random pause.
@@ -48,7 +50,7 @@ The angles and timings are at the top of the arm code in `m5dail_proj.ino` (`ARM
 
 ### Job done
 
-`done` shows the "done" face (blue, eyes shut in happy arcs, big laughing mouth), plays the done bell and puts the arms in the done pose:
+`done` shows the "done" face in the current style (eyes: blue, eyes shut in happy arcs, big laughing mouth; bot: a winking face with a check mark; toon: eyes squeezed shut, big grin and sparkles), plays the done bell and puts the arms in the done pose:
 
 - Servo 1 moves to 120°.
 - Servo 3 waves between 80° and 90°, switching every 2 s.
@@ -58,12 +60,35 @@ The angles and timings are at the top of the arm code in `m5dail_proj.ino` (`ARM
 
 ### Question
 
-`question` shows the "question" face (eyes rolled up to the top right, one brow raised, a small "o" mouth and a big "?"), plays the question sound and rocks servo 1 like the robot is scratching its head:
+`question` shows the "question" face in the current style (eyes rolled up toward a big "?", one brow raised, a small "o" mouth), plays the question sound and rocks servo 1 like the robot is scratching its head:
 
 - Servo 1 moves to 90° at 100 deg/s, then back to 110° at 30 deg/s, pauses 1 s, and repeats.
 - Servo 3 and the head go to their default angles.
 
 `arms question` and `face question` start only one part, and `arms off` ends the pose. The values are `QUESTION_*` in `m5dail_proj.ino`.
+
+### Face styles
+
+| Style | Look | Faces |
+|---|---|---|
+| `eyes` | Two big glowing eyes with brows on a dark screen | happy, sad, surprised, angry, excited, confused, thinking, winking, love, sleeping, done, question |
+| `bot` | LED-dot face: orange-yellow eyes, square pupils, teeth mouth | the same twelve |
+| `toon` | Flat yellow cartoon faces with brown outlines and blue eyes | grin, grumpy, silly, goofy, smile, laugh, meh, evil, cheesy, plus toon thinking, done, question and sleeping |
+
+`face eyes`, `face bot` or `face toon` switches the style and saves it on the dial. `thinking`, `done`, `question`, `sleep`, a screen tap and `face cycle` all use the saved style. The toon names always show the toon faces. In the toon style the other names show the closest toon face (for example `angry` shows grumpy).
+
+### Claude Code mood light
+
+When you use [Claude Code](https://claude.com/claude-code) in this folder, hooks in [`.claude/settings.json`](.claude/settings.json) call `claude_dial.sh`, which sends a mood to the dial with `face.sh`:
+
+| Claude Code is… | The robot shows |
+|---|---|
+| working on your prompt or running tools | `thinking` |
+| asking a question, waiting for a permission or showing a plan | `question` |
+| finished replying | `done` |
+| waiting for you for about a minute, or the session ended | `sleep` |
+
+The script does nothing when the dial isn't plugged in, and skips a mood that's already showing. A serial monitor holding the port blocks it. If the hooks don't fire, open `/hooks` in Claude Code once, or restart it.
 
 ## The robot (3D model)
 
@@ -126,12 +151,12 @@ At boot the screen shows the build date and a build hash for 1.5 seconds, so you
 
 ### Face mode (at power-on)
 
-The Dial starts on the bot "thinking" face.
+The Dial starts on the "thinking" face in the saved style (bot by default).
 
-- **Tap the screen**: next expression.
+- **Tap the screen**: next expression in the current style.
 - **Hold the button**: go to servo mode.
 
-Expressions: happy, sad, surprised, angry, excited, confused, thinking, winking, love, sleeping, done, question. In the thinking face the eyes look down and read lines of text, like reading a laptop screen.
+Expressions: happy, sad, surprised, angry, excited, confused, thinking, winking, love, sleeping, done, question, and the toon faces grin, grumpy, silly, goofy, smile, laugh, meh, evil, cheesy. In the thinking face the eyes look down and read lines of text, like reading a laptop screen.
 
 ### Servo mode
 
@@ -200,9 +225,12 @@ python3 ble_monitor.py
 | File | Purpose |
 |---|---|
 | `m5dail_proj.ino` | Firmware |
-| `faces.h` | Animated faces |
+| `faces.h` | Animated faces (eyes and bot styles, face commands) |
+| `toon_faces.h` | Yellow cartoon "toon" faces |
 | `sounds.h` | Sounds |
 | `face.sh` | Send one serial command from the terminal |
+| `claude_dial.sh` | Show Claude Code's state on the dial (called by the hooks in `.claude/settings.json`) |
+| `CLAUDE.md` | Notes for Claude Code: build commands and the mood hooks |
 | `Makefile` | Build, flash and verify |
 | `serial_monitor.py` | Two-way serial terminal |
 | `ble_monitor.py` | Two-way Bluetooth LE terminal |

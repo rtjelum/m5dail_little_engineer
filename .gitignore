@@ -1,5 +1,6 @@
 build/
 .DS_Store
-.claude/
+.claude/*
+!.claude/settings.json
 __pycache__/
 *.mov
